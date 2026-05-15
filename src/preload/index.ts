@@ -1,0 +1,55 @@
+import { contextBridge, ipcRenderer } from 'electron'
+import { IPC } from '../shared/types'
+import type {
+  AppSettings,
+  Job,
+  QueueEvent,
+  VoiceProfile
+} from '../shared/types'
+
+const api = {
+  settings: {
+    get: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.SETTINGS_GET),
+    set: (patch: Partial<AppSettings>): Promise<AppSettings> =>
+      ipcRenderer.invoke(IPC.SETTINGS_SET, patch)
+  },
+  profiles: {
+    list: (): Promise<VoiceProfile[]> => ipcRenderer.invoke(IPC.PROFILES_LIST),
+    upsert: (p: VoiceProfile): Promise<VoiceProfile> =>
+      ipcRenderer.invoke(IPC.PROFILES_UPSERT, p),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.PROFILES_DELETE, id)
+  },
+  jobs: {
+    enqueue: (script_yaml: string): Promise<Job> =>
+      ipcRenderer.invoke(IPC.JOB_ENQUEUE, { script_yaml }),
+    enqueueFile: (filePath: string): Promise<Job> =>
+      ipcRenderer.invoke(IPC.JOB_ENQUEUE_FILE, filePath),
+    list: (): Promise<Job[]> => ipcRenderer.invoke(IPC.JOB_LIST),
+    get: (id: string): Promise<Job | null> => ipcRenderer.invoke(IPC.JOB_GET, id),
+    cancel: (id: string) => ipcRenderer.invoke(IPC.JOB_CANCEL, id),
+    remove: (id: string) => ipcRenderer.invoke(IPC.JOB_REMOVE, id),
+    retry: (id: string): Promise<Job | null> => ipcRenderer.invoke(IPC.JOB_RETRY, id),
+    onEvent: (cb: (event: QueueEvent) => void) => {
+      const handler = (_e: unknown, event: QueueEvent) => cb(event)
+      ipcRenderer.on(IPC.JOB_EVENT, handler)
+      return () => ipcRenderer.removeListener(IPC.JOB_EVENT, handler)
+    }
+  },
+  dialog: {
+    pickFolder: (defaultPath?: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.PICK_FOLDER, defaultPath),
+    pickScripts: (): Promise<string[]> => ipcRenderer.invoke(IPC.PICK_SCRIPT)
+  },
+  shellOpen: (target: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_PATH, target),
+  template: {
+    get: (): Promise<string> => ipcRenderer.invoke(IPC.TEMPLATE_GET)
+  },
+  tts: {
+    health: (): Promise<{ ok: boolean; detail?: string }> => ipcRenderer.invoke(IPC.TTS_HEALTH),
+    voices: (): Promise<unknown> => ipcRenderer.invoke(IPC.TTS_VOICES)
+  }
+}
+
+contextBridge.exposeInMainWorld('api', api)
+
+export type AppApi = typeof api

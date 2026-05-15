@@ -1,0 +1,72 @@
+# =====================================================================
+# AI Video Creator — script template
+# =====================================================================
+# Save a copy of this file per video. Drop it into the "New job" tab or
+# pick it from the file dialog. The parser is strict — keep the keys
+# exactly as named below.
+#
+# Required top-level keys: video_name, ratio, output_folder, voice_profile, scenes
+# Optional: voice_speed, style
+#
+# How the pipeline interprets the script:
+#   1. For each scene the tool calls your TTS API to synthesize the voiceover.
+#   2. The audio's exact duration becomes the target visual length.
+#   3. Claude Opus 4.7 is prompted with the scene's `explainer`, the style
+#      hints, the ratio, and the duration — and returns one complete
+#      `index.html` for the HeyGen Hyperframes renderer.
+#   4. Hyperframes renders the HTML to MP4, the audio is muxed in.
+#   5. All scenes are concatenated together using the `transition_out`
+#      between each adjacent pair (the last scene's transition_out is
+#      ignored — set it to `none`).
+# =====================================================================
+
+video_name: "novapad-launch"        # the final file will be <video_name>.mp4
+ratio: "16:9"                       # one of: 16:9, 9:16, 1:1, 4:5, 21:9
+output_folder: "C:/Users/me/Desktop/Videos"   # absolute folder path
+voice_profile: "Narrator A"         # must match a saved profile's display name
+voice_speed: 1.0                    # optional, 0.5 – 2.0
+
+# Optional global brand/style hints sent to Claude on every scene.
+# Use these to keep the look consistent across scenes.
+style:
+  description: "Modern, dark theme, bold sans-serif typography, subtle motion, premium feel"
+  colors:
+    - "#0F172A"
+    - "#38BDF8"
+    - "#F8FAFC"
+  fonts:
+    - "Inter"
+    - "JetBrains Mono"
+
+scenes:
+  - explainer: |
+      Opening title card. The product logo appears center-screen with a
+      gentle pulse, then the product name fades in just below. Background
+      is the deepest brand color with a faint radial glow behind the logo.
+    voiceover: "Welcome to NovaPad — the notebook that thinks with you."
+    transition_out:
+      # Transition that plays moving FROM this scene INTO the next one.
+      # type: none | fade | dissolve |
+      #       slide_left | slide_right | slide_up | slide_down |
+      #       wipe_left | wipe_right | wipe_up | wipe_down
+      type: fade
+      duration: 0.5      # seconds, 0 – 5
+
+  - explainer: |
+      Feature highlight. Split-screen: a stylised "notebook" on the left
+      with a handwritten line appearing, and on the right a clean panel
+      showing the AI's structured plan being typed out word by word with
+      a soft caret. Light particles drift across the seam.
+    voiceover: "Capture an idea, and NovaPad turns it into a structured plan instantly."
+    transition_out:
+      type: slide_left
+      duration: 0.4
+
+  - explainer: |
+      Closing call-to-action. The product name swells to fill the screen,
+      then the tagline and a soft "Available now on novapad.com" fades in
+      below. Background brand gradient slowly drifts.
+    voiceover: "NovaPad. Think clearly. Available now on novapad.com."
+    transition_out:
+      type: none         # final scene — no transition needed
+      duration: 0
