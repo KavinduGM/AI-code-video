@@ -85,7 +85,13 @@ scenes:
       duration: 0
 ```
 
-Validation is strict. Bad keys, unknown transitions, or out-of-range numbers are rejected before the job is even queued.
+Validation is strict. Unknown top-level keys, unknown transitions, or out-of-range numbers are rejected before the job is even queued.
+
+`description`, `colors`, and `fonts` can be written either at the top level or nested under `style:`. `colors` and `fonts` accept a YAML list (`- "#F5C842"`) **or** a plain string (`"warm yellow, sky blue, coral"`). `description` is free-form prose.
+
+### Scene length matters
+
+Aim for **10–20 seconds of voiceover per scene**. Longer single scenes work but Claude struggles to fill 60+ seconds of unique animation, and the result can feel padded or repetitive. If your explainer has clearly distinct beats (an opening, a comparison section, a closing CTA, …), split each into its own scene with its own voiceover and a `transition_out` between them. You'll get tighter, more coherent motion, and the per-scene transitions make the cuts feel intentional.
 
 ### Single-scene scripts
 

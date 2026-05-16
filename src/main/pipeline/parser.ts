@@ -17,6 +17,22 @@ const VALID_TRANSITIONS: TransitionType[] = [
   'wipe_down'
 ]
 
+const ALLOWED_TOP_LEVEL = new Set([
+  'video_name',
+  'ratio',
+  'output_folder',
+  'voice_profile',
+  'voice_speed',
+  'style',
+  // Style fields are also accepted at the top level for ergonomics.
+  'description',
+  'colors',
+  'fonts',
+  'scenes'
+])
+
+const ALLOWED_SCENE_KEYS = new Set(['explainer', 'voiceover', 'transition_out'])
+
 export class ScriptValidationError extends Error {
   constructor(message: string, public path?: string) {
     super(path ? `${path}: ${message}` : message)
@@ -34,6 +50,16 @@ export function parseScript(yaml: string): ScriptSpec {
     throw new ScriptValidationError('Script must be a YAML mapping at the top level.')
   }
   const r = raw as Record<string, unknown>
+
+  // Reject unknown top-level keys so typos surface immediately.
+  for (const k of Object.keys(r)) {
+    if (!ALLOWED_TOP_LEVEL.has(k)) {
+      throw new ScriptValidationError(
+        `Unknown top-level key "${k}". Allowed keys: ${Array.from(ALLOWED_TOP_LEVEL).join(', ')}.`,
+        k
+      )
+    }
+  }
 
   const video_name = requireString(r, 'video_name')
   if (!/^[A-Za-z0-9_\- ]+$/.test(video_name)) {
@@ -57,22 +83,7 @@ export function parseScript(yaml: string): ScriptSpec {
   const voice_speed =
     r.voice_speed !== undefined ? requireNumber(r, 'voice_speed', 0.5, 2.0) : undefined
 
-  let style: ScriptSpec['style'] | undefined
-  if (r.style !== undefined) {
-    if (typeof r.style !== 'object' || r.style === null) {
-      throw new ScriptValidationError('style must be a mapping.', 'style')
-    }
-    const s = r.style as Record<string, unknown>
-    style = {
-      description: s.description !== undefined ? String(s.description) : undefined,
-      colors:
-        s.colors !== undefined
-          ? requireStringArray(s.colors, 'style.colors')
-          : undefined,
-      fonts:
-        s.fonts !== undefined ? requireStringArray(s.fonts, 'style.fonts') : undefined
-    }
-  }
+  const style = parseStyle(r)
 
   if (!Array.isArray(r.scenes) || r.scenes.length === 0) {
     throw new ScriptValidationError('scenes must be a non-empty array.', 'scenes')
@@ -91,12 +102,48 @@ export function parseScript(yaml: string): ScriptSpec {
   }
 }
 
+/**
+ * Accepts style either at the top level or nested under `style:`.
+ * Each of description / colors / fonts can be a plain string OR a list of strings.
+ * Top-level fields take precedence if both forms are provided.
+ */
+function parseStyle(r: Record<string, unknown>): ScriptSpec['style'] | undefined {
+  let nested: Record<string, unknown> = {}
+  if (r.style !== undefined) {
+    if (typeof r.style === 'string') {
+      // Whole style as a single descriptive paragraph.
+      nested.description = r.style
+    } else if (r.style && typeof r.style === 'object') {
+      nested = r.style as Record<string, unknown>
+    } else {
+      throw new ScriptValidationError('style must be a mapping or string.', 'style')
+    }
+  }
+
+  const description = pickString(r.description ?? nested.description, 'description')
+  const colors = pickStringList(r.colors ?? nested.colors, 'colors')
+  const fonts = pickStringList(r.fonts ?? nested.fonts, 'fonts')
+
+  if (description === undefined && colors === undefined && fonts === undefined) {
+    return undefined
+  }
+  return { description, colors, fonts }
+}
+
 function parseScene(raw: unknown, idx: number): SceneSpec {
   const path = `scenes[${idx}]`
   if (!raw || typeof raw !== 'object') {
     throw new ScriptValidationError('Scene must be a mapping.', path)
   }
   const s = raw as Record<string, unknown>
+  for (const k of Object.keys(s)) {
+    if (!ALLOWED_SCENE_KEYS.has(k)) {
+      throw new ScriptValidationError(
+        `Unknown scene key "${k}". Allowed: ${Array.from(ALLOWED_SCENE_KEYS).join(', ')}.`,
+        `${path}.${k}`
+      )
+    }
+  }
   const explainer = requireString(s, 'explainer', `${path}.explainer`)
   const voiceover = requireString(s, 'voiceover', `${path}.voiceover`)
 
@@ -150,11 +197,33 @@ function requireNumber(
   return v
 }
 
-function requireStringArray(v: unknown, path: string): string[] {
-  if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) {
-    throw new ScriptValidationError('Must be an array of strings.', path)
+function pickString(v: unknown, path: string): string | undefined {
+  if (v === undefined || v === null) return undefined
+  if (typeof v === 'string') return v.trim() || undefined
+  if (Array.isArray(v)) {
+    const joined = v.map(String).filter((s) => s.trim() !== '').join(' ')
+    return joined || undefined
   }
-  return v as string[]
+  throw new ScriptValidationError('Must be a string.', path)
+}
+
+function pickStringList(v: unknown, path: string): string[] | undefined {
+  if (v === undefined || v === null) return undefined
+  if (Array.isArray(v)) {
+    const arr = v.map((x) => String(x).trim()).filter((s) => s !== '')
+    return arr.length > 0 ? arr : undefined
+  }
+  if (typeof v === 'string') {
+    // Allow "red, blue, green" or a single descriptive sentence — treat as one entry.
+    const trimmed = v.trim()
+    if (!trimmed) return undefined
+    // If it looks like a comma list (multiple commas and no full sentences), split it.
+    if (trimmed.includes(',') && trimmed.split(',').every((p) => p.trim().length < 60)) {
+      return trimmed.split(',').map((s) => s.trim()).filter((s) => s !== '')
+    }
+    return [trimmed]
+  }
+  throw new ScriptValidationError('Must be a string or array of strings.', path)
 }
 
 export function dimensionsForRatio(ratio: AspectRatio) {

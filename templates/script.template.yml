@@ -28,15 +28,20 @@ voice_speed: 1.0                    # optional, 0.5 – 2.0
 
 # Optional global brand/style hints sent to Claude on every scene.
 # Use these to keep the look consistent across scenes.
-style:
-  description: "Modern, dark theme, bold sans-serif typography, subtle motion, premium feel"
-  colors:
-    - "#0F172A"
-    - "#38BDF8"
-    - "#F8FAFC"
-  fonts:
-    - "Inter"
-    - "JetBrains Mono"
+#
+# You can write these at the TOP LEVEL (shown here) or nested under `style:`.
+# `colors` and `fonts` can be a YAML list (preferred) OR a plain string like
+# "warm yellow, sky blue, coral". `description` is free-form prose.
+description: |
+  Modern, dark theme, bold sans-serif typography, subtle motion, premium feel.
+  Crisp reveals, smooth easing, no flashy gimmicks.
+colors:
+  - "#0F172A"
+  - "#38BDF8"
+  - "#F8FAFC"
+fonts:
+  - "Inter"
+  - "JetBrains Mono"
 
 scenes:
   - explainer: |
