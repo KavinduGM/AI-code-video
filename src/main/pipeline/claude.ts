@@ -72,6 +72,25 @@ Hard requirements you MUST follow:
      drift) lasting exactly until D seconds, to keep the frame alive — but it must NOT repeat
      and must NOT distract from the final composition.
 
+5b. STEP / BEAT TIMESTAMPS IN THE EXPLAINER ARE A MANDATORY CONTRACT.
+    If the user's explainer contains lines like \`Step 1 (0.0 – 1.6s):\`, \`Beat 3 (2.4 – 4.0s):\`,
+    \`at 5.5s: …\`, or any other explicit time markers, you MUST:
+    - Honor each timestamp EXACTLY. The element described in Step 3 at 2.4s starts its
+      reveal animation at t = 2.4s, not earlier and not later.
+    - Place every step in the timeline at its declared time, even if it means the early steps
+      finish quickly and the later steps have to wait.
+    - Do NOT condense the steps into the first few seconds and then leave the rest of the
+      timeline empty. That is the most common failure mode and produces a video that
+      looks like it loops or freezes.
+    - Build ONE master \`gsap.timeline({ paused: false })\` and schedule every animation at its
+      ABSOLUTE position using the third argument:
+          tl.to('#title', { opacity: 1, duration: 0.8 }, 0.0)
+          tl.to('#underline', { strokeDashoffset: 0, duration: 0.6 }, 1.0)
+          tl.to('#subtitle', { opacity: 1, duration: 0.7 }, 1.8)
+      (The trailing number is the absolute start time in seconds — use this, not delay-chains.)
+    - If the explainer has no explicit timestamps, fall back to rule 5 (compute beats yourself,
+      ceil(D/2.5) of them, evenly distributed).
+
 6. THE EXPLAINER OFTEN CONTAINS MULTIPLE SECTIONS OR BEATS. Map them onto the sequential timeline:
    - Identify each distinct beat in the explainer (e.g. "OPENING", "SECTION 1", "SECTION 2", "CLOSING").
    - Divide the duration D between them in proportion to how much content each beat carries.
@@ -126,24 +145,41 @@ ${args.voiceover}
 
 Before you write any animation code, plan internally:
 
-1. List the distinct beats / SECTIONS in the explainer in order. Plan at least
-   ${Math.max(2, Math.ceil(args.durationSeconds / 2.5))} beats total across the ${args.durationSeconds.toFixed(2)}-second timeline,
+1. SCAN the explainer for explicit time markers. Look for patterns like
+   "Step N (a.a – b.b s):", "Beat N (a.a – b.b s):", "at N.N s:", "N s –", etc.
+   If you find them, they are a MANDATORY CONTRACT — each described element starts its
+   animation exactly at the stated time. Skip steps 2–3 below; jump straight to step 4 and
+   schedule every animation at its stated absolute time.
+
+2. If the explainer has NO time markers, list the distinct beats / SECTIONS yourself in order.
+   Plan at least ${Math.max(2, Math.ceil(args.durationSeconds / 2.5))} beats total across the ${args.durationSeconds.toFixed(2)}-second timeline,
    one beat every 2–3 seconds. If the explainer doesn't provide that many beats explicitly,
    subdivide each section into smaller sub-beats (e.g. "title writes in", "underline draws",
    "subtitle writes in" are three beats inside one opening section).
 
-2. Assign each beat a start time and a length so they tile [0, ${args.durationSeconds.toFixed(2)}]
+3. Assign each beat a start time and a length so they tile [0, ${args.durationSeconds.toFixed(2)}]
    with no gaps and no overlap (except optional 0.3–0.6s crossfades). The last beat should end
    at approximately ${(args.durationSeconds - 0.8).toFixed(2)} seconds, leaving a ~0.8 s settle hold.
 
-3. During the settle hold (final ~0.8 s) you MAY add ONE gentle single-pass effect such as
+4. Build ONE master GSAP timeline and schedule every reveal at its ABSOLUTE time position
+   (the third arg to .to / .from / .fromTo / .add). Do NOT use delay-chains or "start when
+   previous ends" defaults — those compound rounding errors and finish early. Example:
+       const tl = gsap.timeline({ paused: false });
+       tl.to('#title',      { opacity: 1, y: 0,  duration: 0.8 }, 0.0);  // starts at t=0.0s
+       tl.to('#underline',  { strokeDashoffset: 0, duration: 0.6 }, 1.0); // starts at t=1.0s
+       tl.to('#subtitle',   { opacity: 1, duration: 0.7 }, 1.8);          // starts at t=1.8s
+       // ... continue until your last reveal ends at or before ${(args.durationSeconds - 0.5).toFixed(2)}s
+       tl.to('#stage-inner', { scale: 1.02, duration: ${(args.durationSeconds * 0.6).toFixed(2)}, ease: 'sine.inOut' }, 0); // optional settle motion, one-shot
+
+5. During the settle hold (final ~0.8 s) you MAY add ONE gentle single-pass effect such as
    a very slow zoom (scale 1 → 1.02), a slow pan, or a slow gradient drift — but it must run
    exactly once and end exactly at ${args.durationSeconds.toFixed(2)} seconds. NEVER loop it.
 
-4. Then write the HTML. Every animation runs exactly once. Every \`@keyframes\` user must set
-   \`animation-iteration-count: 1\` explicitly. No \`repeat: -1\`. No \`infinite\`.
+6. Then write the HTML. Every animation runs exactly once. Every \`@keyframes\` user must set
+   \`animation-iteration-count: 1\` AND \`animation-fill-mode: forwards\` explicitly.
+   No \`repeat: -1\`. No \`infinite\`. No \`repeatCount="indefinite"\`.
 
-5. If you cannot think of enough content to fill ${args.durationSeconds.toFixed(2)} seconds,
+7. If you cannot think of enough content to fill ${args.durationSeconds.toFixed(2)} seconds,
    INVENT supporting visuals consistent with the explainer (decorative annotations, supporting
    bullets, a callout arrow, a count-up number, an icon). Do NOT pad by repeating earlier motion.
 
