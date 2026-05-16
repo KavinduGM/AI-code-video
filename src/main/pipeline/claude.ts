@@ -34,13 +34,28 @@ Hard requirements you MUST follow:
    and Google Fonts. Prefer GSAP timelines for complex sequencing.
 
 4. THE TIMELINE IS A SINGLE LINEAR PLAYTHROUGH FROM 0 TO D SECONDS. ABSOLUTELY NO LOOPING.
-   - Never use GSAP \`repeat: -1\`, \`repeat: N\` > 0, or \`yoyo: true\` with repeats.
-   - Never use CSS \`animation-iteration-count: infinite\` or any value other than \`1\`.
-   - Every \`@keyframes\` rule applied to a visible element MUST be paired with
-     \`animation-iteration-count: 1\` explicitly. Do NOT rely on defaults.
-   - Never use \`setInterval\` for animation. \`setTimeout\` is allowed only for scheduling
-     one-shot reveals — never for repeated motion.
-   - Every animation runs exactly once, ends in its final visual state, and stays in that state.
+   This rule is enforced by a post-processor that rewrites the following patterns — do not
+   write them, you'll just look careless:
+   - CSS:        \`animation-iteration-count: infinite\` or any value > 1 (will be forced to 1)
+   - CSS:        \`animation: name 2s infinite\` (the \`infinite\` keyword will be stripped)
+   - GSAP:       \`repeat: -1\` or \`repeat: N\` > 0 (will be forced to 0)
+   - GSAP:       \`yoyo: true\` (will be forced to false)
+   - SVG:        \`<animate ... repeatCount="indefinite">\` or repeatCount > 1 (will be forced to "1")
+                 (same for \`<animateMotion>\`, \`<animateTransform>\`)
+   - WebAnims:   \`element.animate(..., { iterations: Infinity })\` or iterations > 1 (forced to 1)
+   - anime.js:   \`loop: true\`, \`loop: -1\`, or \`loop: N\` > 0 (will be forced to false)
+   - JS:         \`setInterval\` for any visible animation — banned outright; use
+                 \`setTimeout\` only for scheduling one-shot reveals.
+
+   Every \`@keyframes\` rule applied to a visible element MUST be paired with
+   \`animation-iteration-count: 1\` and \`animation-fill-mode: forwards\` explicitly. Do NOT
+   rely on defaults. Every animation runs exactly once and ends in its final visual state.
+
+   RECOMMENDED write-on patterns (use these, they don't loop):
+   - SVG hand-drawn stroke write-on: set \`stroke-dasharray: <pathLength>; stroke-dashoffset: <pathLength>;\`
+     and animate \`stroke-dashoffset: 0\` with a single \`forwards\` CSS keyframe or one GSAP tween.
+   - Letter-by-letter text write-on: stagger each <span> with a GSAP timeline (no repeat),
+     or use CSS \`@keyframes\` with \`animation-delay\` per letter and \`animation-iteration-count: 1\`.
 
 5. THE ANIMATION MUST GENUINELY FILL THE ENTIRE DURATION D WITH UNIQUE, PROGRESSIVE CONTENT.
    This is the single most important rule and the one most often violated:
@@ -164,13 +179,21 @@ export async function generateSceneHtml(args: SceneRenderArgs): Promise<SceneHtm
 /**
  * Last-line defence: strip the common looping constructs even if the prompt was ignored.
  * Returns the sanitized HTML and a list of what we changed so the runner can log it.
+ *
+ * Covers the realistic offenders:
+ *   - CSS animation-iteration-count and the `infinite` keyword in the shorthand
+ *   - GSAP timeline/tween repeat and yoyo
+ *   - SVG <animate>/<animateMotion>/<animateTransform> repeatCount="indefinite"|N>1
+ *   - Web Animations API element.animate(..., { iterations: Infinity | -1 | N>1 })
+ *   - anime.js  loop: true | loop: N | direction: 'alternate' with loop
+ *   - setInterval used for animation (can't auto-fix; logged as a warning)
  */
 export function sanitizeLoops(html: string): SceneHtmlResult {
   const notes: string[] = []
   let out = html
 
-  // CSS: animation-iteration-count: infinite | N (>1)  →  1
-  out = out.replace(/animation-iteration-count\s*:\s*infinite/gi, (m) => {
+  // ---- CSS animation-iteration-count ------------------------------------
+  out = out.replace(/animation-iteration-count\s*:\s*infinite/gi, () => {
     notes.push('css: animation-iteration-count: infinite → 1')
     return 'animation-iteration-count: 1'
   })
@@ -182,14 +205,13 @@ export function sanitizeLoops(html: string): SceneHtmlResult {
     return m
   })
 
-  // CSS shorthand: `animation: ... infinite ...`  → strip the "infinite" token.
-  // Only inside `animation:` declarations (rough heuristic: match whole declaration line).
-  out = out.replace(/(animation\s*:\s*[^;{}\n]*?)\binfinite\b([^;{}\n]*)/gi, (m, a, b) => {
+  // ---- CSS animation shorthand: drop `infinite` -------------------------
+  out = out.replace(/(animation\s*:\s*[^;{}\n]*?)\binfinite\b([^;{}\n]*)/gi, (_m, a, b) => {
     notes.push('css: animation shorthand had `infinite` → removed')
     return `${a}${b}`
   })
 
-  // GSAP: repeat: -1 | repeat: N>0
+  // ---- GSAP: repeat: -1 / repeat: N>0 -----------------------------------
   out = out.replace(/repeat\s*:\s*-?\d+/g, (m) => {
     const v = parseInt(m.split(':')[1].trim(), 10)
     if (v !== 0) {
@@ -199,13 +221,55 @@ export function sanitizeLoops(html: string): SceneHtmlResult {
     return m
   })
 
-  // GSAP: yoyo: true  (only meaningful with repeat — but flag anyway)
+  // ---- GSAP: yoyo: true -------------------------------------------------
   out = out.replace(/yoyo\s*:\s*true/g, () => {
     notes.push('gsap: yoyo: true → yoyo: false')
     return 'yoyo: false'
   })
 
-  // setInterval used for animation — we can't safely auto-fix this, just note it.
+  // ---- SVG <animate ... repeatCount="indefinite"|N> ---------------------
+  // Catches <animate>, <animateMotion>, <animateTransform>, <animateColor>.
+  out = out.replace(/repeatCount\s*=\s*(["'])indefinite\1/gi, (_m, q) => {
+    notes.push('svg: repeatCount="indefinite" → "1"')
+    return `repeatCount=${q}1${q}`
+  })
+  out = out.replace(/repeatCount\s*=\s*(["'])(\d+)\1/gi, (m, q, n) => {
+    if (parseInt(n, 10) > 1) {
+      notes.push(`svg: repeatCount="${n}" → "1"`)
+      return `repeatCount=${q}1${q}`
+    }
+    return m
+  })
+
+  // ---- Web Animations API: { iterations: Infinity | -1 | N>1 } ----------
+  out = out.replace(/iterations\s*:\s*Infinity/g, () => {
+    notes.push('webanim: iterations: Infinity → 1')
+    return 'iterations: 1'
+  })
+  out = out.replace(/iterations\s*:\s*-?\d+/g, (m) => {
+    const v = parseInt(m.split(':')[1].trim(), 10)
+    if (v !== 1) {
+      notes.push(`webanim: ${m.trim()} → iterations: 1`)
+      return 'iterations: 1'
+    }
+    return m
+  })
+
+  // ---- anime.js: loop: true | loop: -1 | loop: N>0 ----------------------
+  out = out.replace(/loop\s*:\s*true/g, () => {
+    notes.push('anime.js: loop: true → false')
+    return 'loop: false'
+  })
+  out = out.replace(/loop\s*:\s*-?\d+/g, (m) => {
+    const v = parseInt(m.split(':')[1].trim(), 10)
+    if (v !== 0) {
+      notes.push(`anime.js: ${m.trim()} → loop: false`)
+      return 'loop: false'
+    }
+    return m
+  })
+
+  // ---- setInterval — can't safely auto-fix, just shout about it ---------
   if (/setInterval\s*\(/.test(out)) {
     notes.push('warning: setInterval is present in the HTML — Claude may have written a loop')
   }

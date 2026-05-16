@@ -109,12 +109,35 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
     })
     if (handle.cancelled) throw new Error('Cancelled')
 
+    // Verify the render's actual duration against the audio's. A big mismatch
+    // means either Claude set data-duration too short (→ ffmpeg will freeze
+    // the last frame for the remaining audio) or too long (→ wasted render).
+    try {
+      const renderDuration = await probeDurationSeconds(rawMp4)
+      const diff = renderDuration - audioDuration
+      if (Math.abs(diff) > 0.5) {
+        cb.onLog(info(
+          `Scene ${i + 1}: WARNING — Hyperframes rendered ${renderDuration.toFixed(2)}s, ` +
+          `audio is ${audioDuration.toFixed(2)}s (diff ${diff >= 0 ? '+' : ''}${diff.toFixed(2)}s). ` +
+          (diff < -0.5
+            ? 'The final frame will be held for the remaining audio. ' +
+              'Open the saved HTML to inspect Claude\'s data-duration / element timings.'
+            : 'Extra render time was discarded.')
+        ))
+      } else {
+        cb.onLog(info(`Scene ${i + 1}: render duration ${renderDuration.toFixed(2)}s matches audio (${audioDuration.toFixed(2)}s) ✓`))
+      }
+    } catch (err: any) {
+      cb.onLog(info(`Scene ${i + 1}: could not probe render duration — ${err.message}`))
+    }
+
     cb.onProgress(baseProgress + sceneShare * 0.8, `Scene ${i + 1}/${totalScenes}: muxing audio`)
     const finalMp4 = path.join(sceneDir, 'scene.mp4')
     await muxAudioWithVideo(
       { videoIn: rawMp4, audioIn: audioPath, out: finalMp4, durationSeconds: audioDuration },
       (line) => cb.onLog(info(`ffmpeg: ${line}`))
     )
+    cb.onLog(info(`✓ Scene ${i + 1}/${totalScenes} saved to ${finalMp4}`))
 
     sceneResults.push({
       finalMp4,
@@ -122,6 +145,8 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
       transition_out: scene.transition_out
     })
   }
+
+  cb.onLog(info(`All ${totalScenes} scene MP4(s) saved. Beginning final concatenation…`))
 
   if (handle.cancelled) throw new Error('Cancelled')
   cb.onProgress(0.7, 'Concatenating scenes')
