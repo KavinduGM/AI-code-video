@@ -2,12 +2,34 @@
 
 This guide takes a clean Windows 10 or 11 PC and ends with **AI Video Creator** running and rendering MP4s.
 
-Two ways to install:
+Three ways to install:
 
-- **A. Built installer** — fastest if you already have a packaged `.exe` (recommended for end use).
-- **B. Build from source** — required for development, or if you don't have a pre-built installer yet.
+- **A. One-click batch scripts** — fastest possible setup. Just `setup.bat` once, then `start.bat` forever after.
+- **B. Built installer** — if you already have a packaged `.exe`.
+- **C. Build from source manually** — for development, if you want to control every step.
 
-If you've never touched this project on this machine, do **section 1** (prerequisites) first, then jump to either A or B, then section 4 (first-run setup).
+If you've never touched this project on this machine and just want it working, **use Option A**. If something there fails, fall back to section 1 (prerequisites) + the manual flow.
+
+---
+
+## Option A — one-click batch scripts (recommended)
+
+1. Install **Git** from <https://git-scm.com/download/win> (defaults are fine).
+2. Open **PowerShell** in a folder where you want the source:
+   ```powershell
+   cd C:\dev
+   git clone https://github.com/KavinduGM/heygen_video_tool.git
+   cd heygen_video_tool
+   ```
+3. Double-click **`setup.bat`** in File Explorer.
+   - It checks for Node.js and installs it via `winget` if missing.
+   - Runs `npm install` and rebuilds native modules.
+   - Installs the Hyperframes CLI skill.
+   - If it installs Node.js, it will tell you to close the window and re-run — do that.
+4. Double-click **`start.bat`** to launch the app. Keep that console window open while you use the app — closing it kills the app.
+5. (Optional) Right-click `start.bat` → *Create shortcut*, drag the shortcut to your Desktop or pin it to Start.
+
+Skip to **section 4 — first-run setup** to configure API keys and voice profiles.
 
 ---
 
@@ -64,7 +86,7 @@ Open **Windows Security → Virus & threat protection → Manage settings → Ex
 
 ---
 
-## 2. Option A — Install from a built `.exe`
+## 2. Option B — Install from a built `.exe`
 
 Use this if someone (you, on another machine) ran `npm run dist:win` and produced an installer in `dist/`.
 
@@ -78,7 +100,7 @@ Skip to **section 4 — first-run setup**.
 
 ---
 
-## 3. Option B — Build from source
+## 3. Option C — Build from source manually
 
 Use this for development, or if you don't yet have a built installer.
 

@@ -12,7 +12,7 @@ A persistent SQLite queue means you can drop in a stack of scripts, let it grind
 
 ## Install
 
-> **Windows users**: follow the full step-by-step guide at [`docs/WINDOWS_DEPLOY.md`](docs/WINDOWS_DEPLOY.md). The summary below is the macOS / general path.
+> **Windows users — fastest path**: clone the repo, then double-click `setup.bat` once and `start.bat` to run the app. Full guide at [`docs/WINDOWS_DEPLOY.md`](docs/WINDOWS_DEPLOY.md). The summary below is the macOS / general path.
 
 You need **Node.js 20+** on the machine that runs the app (for `npx hyperframes`). On Windows install from <https://nodejs.org/>; on macOS use Homebrew or the installer.
 
