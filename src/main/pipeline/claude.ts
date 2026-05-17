@@ -143,7 +143,62 @@ Hard requirements you MUST follow:
     render the same output every time.
 
 13. Do NOT put the voiceover text on screen unless the explainer explicitly asks for on-screen text.
-    The voiceover is a separate audio track played alongside.`
+    The voiceover is a separate audio track played alongside.
+
+14. LAYOUT — NO ELEMENT MAY VISUALLY OVERLAP ANOTHER. This is a HARD requirement.
+
+    The stage is a single fixed-size canvas. Structure it as a vertical flex column with
+    distinct, non-overlapping REGIONS, each region containing exactly the content that
+    belongs there. Typical structure for a portrait scene:
+
+        #stage {
+          display: flex;
+          flex-direction: column;
+          width: 100%;
+          height: 100%;
+          padding: 80px 60px;  /* breathing room around the edges */
+          gap: 40px;           /* spacing between major regions */
+          box-sizing: border-box;
+        }
+
+        .region-top    { /* heading + underline */ }
+        .region-body   { flex: 1; display: flex; ... ; gap: 24px; }
+        .region-bottom { /* annotations / footer */ }
+
+    HARD RULES for layout:
+
+    a) Prefer NORMAL FLOW with flexbox or grid for all positioning. Use \`position: absolute\`
+       ONLY for hand-drawn doodles or accent overlays that genuinely need to float on top of
+       another element — and even then, make sure they don't cover important text.
+
+    b) "Two pieces of text side by side" = flex row container with the two pieces as children,
+       NOT two absolutely-positioned elements. The same goes for "left box and right box",
+       "icon next to label", "label above arrow", etc.
+
+    c) When the explainer says one element is BELOW another, they must be siblings in DOM
+       order with the lower one appearing after, in a flex column or in normal flow.
+       Never absolutely-position the lower element with a fixed top: value that depends on
+       the upper element's size.
+
+    d) Inside a box that holds multiple text pieces, the box must use flex (column or row,
+       whichever matches "side by side" vs "stacked") with proper gap. The text pieces are
+       children of the box, in flow, NOT absolutely positioned inside the box.
+
+    e) Dividers, separators, dashed lines, and timeline arrows are siblings of the things they
+       separate, with explicit height/width that matches what they actually need to span.
+       A vertical divider between two columns should be a flex item between those columns,
+       not an absolutely-positioned line that extends past the columns into other regions.
+
+    f) Bottom annotations and footers belong in their own region at the bottom of the stage.
+       They appear after the main body region in DOM order. They must NEVER overlap with
+       content above them.
+
+    g) Reserve generous gaps between regions and between sibling elements. Minimum 20px gap
+       between adjacent content elements. Minimum 40px gap between major regions.
+
+    h) Before submitting, mentally render the final composition. If two visible elements
+       occupy overlapping screen rectangles when their animations finish, the layout is wrong
+       — rework it with proper flex/grid structure.`
 
 function buildUserPrompt(args: SceneRenderArgs): string {
   const dims = dimensionsForRatio(args.ratio)
@@ -233,6 +288,14 @@ VERIFICATION before submitting:
 - No two consecutive items are more than 1.5s apart in start time.
 - Every element's initial CSS is the pre-reveal state.
 - Zero infinite/repeat animations anywhere.
+- LAYOUT: the stage is a flex column with distinct top / body / bottom regions.
+- LAYOUT: every "side by side" pair uses a flex row container, not absolute positioning.
+- LAYOUT: every "below X" element is in flow after X (or in a later region), not
+  absolutely positioned with a guessed top: value.
+- LAYOUT: every box that contains multiple text pieces uses flex inside, with proper gap.
+- LAYOUT: dividers / arrows / dashed lines have explicit dimensions and do not extend
+  past the region they belong to.
+- LAYOUT: at the final frame, NO two visible elements share screen space.
 
 Return ONLY the full HTML document, beginning with <!DOCTYPE html>.`
 }
