@@ -170,7 +170,10 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
         `${tag}: visual review (frame extraction)`
       )
       const reviewFramePath = path.join(sceneDir, `review_attempt_${visualAttempt}.jpg`)
-      const grabAt = Math.max(0.1, audioDuration - 0.3)
+      // Grab the genuine LAST frame of the raw render — that's what the viewer sees
+      // at the end of the scene, and it's where animation-cutoff defects show. A
+      // 50 ms offset just keeps ffmpeg from seeking past EOF on edge-case durations.
+      const grabAt = Math.max(0.1, audioDuration - 0.05)
       try {
         await extractFrame(
           { videoIn: rawMp4, atSeconds: grabAt, out: reviewFramePath, quality: 3 },

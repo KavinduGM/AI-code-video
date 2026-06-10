@@ -78,6 +78,33 @@ Hard requirements you MUST follow:
      drift) lasting exactly until D seconds, to keep the frame alive — but it must NOT repeat
      and must NOT distract from the final composition.
 
+5c. EVERY ANIMATION MUST COMPLETE WITHIN THE TIMELINE — start_time + duration ≤ D − 0.3 seconds.
+    This is the single biggest cause of "faded text" / "half-drawn box" defects.
+
+    Hyperframes renders exactly D seconds of video, then hard-stops. ANY animation still in
+    progress at t = D is FROZEN at whatever partial state it had reached. A "write-in" tween
+    that's only 40% complete leaves the text at 40% opacity. A box stroke-dashoffset animation
+    that's only 70% done leaves one side of the box missing.
+
+    Worked example of the failure mode (DO NOT do this):
+      Scene duration D = 8.0s.
+      You schedule a text write-in: start 7.0s, duration 1.8s.
+      Math: this animation ends at 8.8s, which is AFTER D. The renderer hard-stops at 8.0s,
+      so the text only finishes 56% of its write-in. The final frame shows dim/faded letters.
+
+    Correct version of the same item:
+      Scene duration D = 8.0s. Budget = D − 0.3 = 7.7s for animation completion.
+      Schedule it at start 6.2s, duration 1.5s → ends at 7.7s ≤ 7.7s. ✓
+      The final 0.3s is the settle hold where everything sits fully drawn and fully opaque.
+
+    Concrete constraints you must verify for EVERY animated element:
+      - CSS:  delay + animation-duration   ≤  D − 0.3
+      - GSAP: position + vars.duration     ≤  D − 0.3
+      - SVG:  begin + dur                  ≤  D − 0.3
+      - Web Animations / anime.js: delay + duration ≤ D − 0.3 (in seconds)
+    If you can't make an animation fit, SHORTEN its duration — never push the start earlier
+    than D − 2.0 (that would compress the timeline and re-trigger rule 5b).
+
 5b. ONE DOM ELEMENT PER VISIBLE ITEM. ONE ANIMATION PER ELEMENT.
     This is the single biggest source of "the scene loops" failures.
 
@@ -326,6 +353,11 @@ Plan before you write code:
 VERIFICATION before submitting:
 - I have N distinct DOM elements, one per visible item.
 - The LAST element's animation start time is ≥ ${(args.durationSeconds - 2.0).toFixed(2)}s.
+- For EVERY animated element: start_time + duration ≤ ${(args.durationSeconds - 0.3).toFixed(2)}s
+  (D − 0.3). If a write-in needs more than ${(args.durationSeconds - 0.3 - (args.durationSeconds - 2.0)).toFixed(1)}s for the latest
+  element, the duration must be cut, not the start pushed earlier. The renderer hard-stops at
+  ${args.durationSeconds.toFixed(2)}s; any animation still running at that instant is frozen
+  half-finished and the viewer sees dim/faded text or a half-drawn box.
 - No two consecutive items are more than 1.5s apart in start time.
 - Every element's initial CSS is the pre-reveal state.
 - Zero infinite/repeat animations anywhere.
@@ -349,64 +381,115 @@ export interface SceneHtmlResult {
   validationLog: string[]
 }
 
+export interface AnimationTiming {
+  start: number
+  /**
+   * Only set when we can extract the duration from the SAME construct as the
+   * start. When missing, the validator treats the animation as instantaneous
+   * for the end-time check (so we don't false-positive on isolated delays).
+   */
+  duration?: number
+  source: string // brief tag used in error messages so the LLM knows what to fix
+}
+
 /**
- * Walk the generated HTML and find the latest moment any element begins its reveal
- * animation. Catches CSS animation-delay, GSAP timeline absolute-position args
- * (third arg to .to/.from/.fromTo/.set/.add), SVG <animate begin="">, and the
- * Web Animations API / anime.js `delay:` property. Returns the maximum start time
- * in seconds and the count of timed reveals it found.
+ * Walk the generated HTML and find every animation's start time (and, when
+ * detectable, its duration). Catches CSS shorthand and the delay/duration pair,
+ * GSAP timeline positions + vars.duration, SVG <animate begin= dur=>, and Web
+ * Animations / anime.js {delay, duration} objects.
+ *
+ * This replaces the older `extractMaxAnimationStartTime`. Kept under that name
+ * as a thin wrapper for any callers that only care about start times.
+ */
+export function extractAnimationTimings(html: string): AnimationTiming[] {
+  const out: AnimationTiming[] = []
+  const push = (t: AnimationTiming): void => {
+    if (!Number.isFinite(t.start) || t.start < 0 || t.start >= 600) return
+    if (t.duration !== undefined && (!Number.isFinite(t.duration) || t.duration < 0 || t.duration >= 600)) {
+      t.duration = undefined
+    }
+    out.push(t)
+  }
+
+  // CSS shorthand: `animation: name <dur>s <delay>s ...` — both timings captured.
+  for (const m of html.matchAll(
+    /animation\s*:\s*[A-Za-z_-][\w-]*\s+([\d.]+)(s|ms)\s+([\d.]+)(s|ms)/gi
+  )) {
+    const dur = m[2].toLowerCase() === 'ms' ? parseFloat(m[1]) / 1000 : parseFloat(m[1])
+    const delay = m[4].toLowerCase() === 'ms' ? parseFloat(m[3]) / 1000 : parseFloat(m[3])
+    push({ start: delay, duration: dur, source: 'css-animation-shorthand' })
+  }
+
+  // CSS animation-delay alone — we can't easily tie it to its sibling
+  // animation-duration without parsing the whole style block, so we leave
+  // duration undefined and let the start-time check do its work.
+  for (const m of html.matchAll(/animation-delay\s*:\s*([-+]?[\d.]+)\s*(s|ms)\b/gi)) {
+    const v = parseFloat(m[1])
+    push({ start: m[2].toLowerCase() === 'ms' ? v / 1000 : v, source: 'css-animation-delay' })
+  }
+
+  // GSAP: .to(target, { ..., duration: X }, START) — START is the last positional arg.
+  for (const m of html.matchAll(/\.\s*(?:to|from|fromTo|set|add)\s*\(([\s\S]*?)\)/g)) {
+    const args = m[1]
+    const trailing = args.match(/,\s*([\d.]+)\s*$/)
+    if (!trailing) continue
+    const start = parseFloat(trailing[1])
+    const durMatch = args.match(/\bduration\s*:\s*([\d.]+)/)
+    push({
+      start,
+      duration: durMatch ? parseFloat(durMatch[1]) : undefined,
+      source: 'gsap'
+    })
+  }
+
+  // SVG <animate begin="X" dur="Y">. Attribute order can vary so scan attrs.
+  for (const m of html.matchAll(/<animate(?:Motion|Transform)?\b([^>]*)>/gi)) {
+    const attrs = m[1]
+    const beginM = attrs.match(/\bbegin\s*=\s*["']\s*([\d.]+)\s*(s|ms)?\s*["']/i)
+    if (!beginM) continue
+    const beginUnit = (beginM[2] ?? 's').toLowerCase()
+    const start = beginUnit === 'ms' ? parseFloat(beginM[1]) / 1000 : parseFloat(beginM[1])
+    const durM = attrs.match(/\bdur\s*=\s*["']\s*([\d.]+)\s*(s|ms)?\s*["']/i)
+    let duration: number | undefined
+    if (durM) {
+      const durUnit = (durM[2] ?? 's').toLowerCase()
+      duration = durUnit === 'ms' ? parseFloat(durM[1]) / 1000 : parseFloat(durM[1])
+    }
+    push({ start, duration, source: 'svg-animate' })
+  }
+
+  // Web Animations / anime.js: { delay: D, duration: T } in the same braces.
+  // Brace-content scan is cheap and good enough for the typical patterns.
+  for (const m of html.matchAll(/\{([^{}]*)\}/g)) {
+    const block = m[1]
+    const delayM = block.match(/\bdelay\s*:\s*([\d.]+)/)
+    if (!delayM) continue
+    const delayRaw = parseFloat(delayM[1])
+    // Heuristic: > 30 is almost certainly milliseconds (a 30-second pure delay is implausible).
+    const start = delayRaw > 30 ? delayRaw / 1000 : delayRaw
+    const durM = block.match(/\bduration\s*:\s*([\d.]+)/)
+    let duration: number | undefined
+    if (durM) {
+      const durRaw = parseFloat(durM[1])
+      duration = durRaw > 30 ? durRaw / 1000 : durRaw
+    }
+    push({ start, duration, source: 'webanim-or-anime.js' })
+  }
+
+  return out
+}
+
+/**
+ * Backwards-compatible wrapper. Returns just the max start time across all
+ * detected animations — the older API surface.
  */
 export function extractMaxAnimationStartTime(html: string): {
   maxStartSeconds: number
   found: number
   starts: number[]
 } {
-  const starts: number[] = []
-  const push = (v: number) => {
-    if (Number.isFinite(v) && v >= 0 && v < 600) starts.push(v)
-  }
-
-  // CSS  animation-delay: 1.5s | 1500ms
-  for (const m of html.matchAll(/animation-delay\s*:\s*([-+]?[\d.]+)\s*(s|ms)\b/gi)) {
-    const v = parseFloat(m[1])
-    push(m[2].toLowerCase() === 'ms' ? v / 1000 : v)
-  }
-
-  // CSS shorthand: animation: name 1s 2s ...  — second time value is the delay.
-  for (const m of html.matchAll(
-    /animation\s*:\s*[A-Za-z_-][\w-]*\s+([\d.]+)(s|ms)\s+([\d.]+)(s|ms)/gi
-  )) {
-    const v = parseFloat(m[3])
-    push(m[4].toLowerCase() === 'ms' ? v / 1000 : v)
-  }
-
-  // GSAP: .to(target, vars, position), .from(...), .fromTo(...), .set(...), .add(...)
-  // We catch the case where the LAST positional arg is a plain number (absolute time).
-  for (const m of html.matchAll(
-    /\.\s*(?:to|from|fromTo|set|add)\s*\(([\s\S]*?)\)/g
-  )) {
-    const args = m[1]
-    // Find the last top-level numeric literal argument.
-    const trailing = args.match(/,\s*([\d.]+)\s*$/)
-    if (trailing) push(parseFloat(trailing[1]))
-  }
-
-  // SVG <animate begin="2.5s"> / begin="2500ms" / begin="2"
-  for (const m of html.matchAll(
-    /<animate(?:Motion|Transform)?\b[^>]*\bbegin\s*=\s*["']\s*([\d.]+)\s*(s|ms)?\s*["']/gi
-  )) {
-    const v = parseFloat(m[1])
-    push((m[2] ?? 's').toLowerCase() === 'ms' ? v / 1000 : v)
-  }
-
-  // Web Animations / anime.js: { delay: 1500 } — usually milliseconds.
-  for (const m of html.matchAll(/\bdelay\s*:\s*([\d.]+)\s*[,}\n]/g)) {
-    const v = parseFloat(m[1])
-    // Heuristic: anything > 30 is almost certainly ms (a 30-second delay is implausible),
-    // anything ≤ 30 we treat as seconds (GSAP delay convention).
-    push(v > 30 ? v / 1000 : v)
-  }
-
+  const timings = extractAnimationTimings(html)
+  const starts = timings.map((t) => t.start)
   const maxStartSeconds = starts.length > 0 ? Math.max(...starts) : 0
   return { maxStartSeconds, found: starts.length, starts }
 }
@@ -414,43 +497,98 @@ export function extractMaxAnimationStartTime(html: string): {
 export interface ValidationResult {
   ok: boolean
   maxStartSeconds: number
+  maxEndSeconds: number
   found: number
   reason?: string
 }
 
 /**
- * Coverage rule: the last animation in the scene MUST start no earlier than D - 2.0 seconds.
- * If it starts earlier, the visible timeline is compressed into the front of the scene
- * and the tail will look frozen or looping. We treat this as a generation failure and retry.
+ * Two coverage rules, both enforced on every retry:
+ *
+ *   A) The LAST animation must START no earlier than D − 2.0s — otherwise the
+ *      timeline is compressed into the front of the scene and the tail looks
+ *      frozen or loops.
+ *
+ *   B) EVERY animation must END (start + duration) no later than D − 0.3s —
+ *      otherwise Hyperframes hard-stops mid-animation at t = D and the viewer
+ *      sees dim/faded text or a half-drawn box (the exact "Mann-Whitney box"
+ *      defect that motivated this rule). We can only enforce this on
+ *      animations where the duration is in the same construct as the start
+ *      (CSS shorthand, GSAP vars, SVG dur=, anime.js); for isolated
+ *      animation-delay lines we have no duration to check and fall back to A.
  */
-export function validateAnimationCoverage(html: string, durationSeconds: number): ValidationResult {
-  const { maxStartSeconds, found } = extractMaxAnimationStartTime(html)
-  const minRequired = Math.max(0.5, durationSeconds - 2.0)
+export function validateAnimationCoverage(
+  html: string,
+  durationSeconds: number
+): ValidationResult {
+  const timings = extractAnimationTimings(html)
+  const found = timings.length
+  const starts = timings.map((t) => t.start)
+  const ends = timings.map((t) => t.start + (t.duration ?? 0))
+  const maxStartSeconds = starts.length > 0 ? Math.max(...starts) : 0
+  const maxEndSeconds = ends.length > 0 ? Math.max(...ends) : 0
 
   if (found === 0) {
     return {
       ok: false,
       maxStartSeconds: 0,
+      maxEndSeconds: 0,
       found: 0,
       reason:
         'No animation start times detected anywhere in the HTML (no CSS animation-delay, no GSAP positional args, no SVG begin=, no delay: properties). The composition has no scheduled timeline — every element would appear at frame 0.'
     }
   }
 
-  if (maxStartSeconds < minRequired) {
+  const minStartRequired = Math.max(0.5, durationSeconds - 2.0)
+  const maxEndAllowed = durationSeconds - 0.3
+
+  // Rule A — last animation starts late enough that the timeline spans the scene.
+  if (maxStartSeconds < minStartRequired) {
     return {
       ok: false,
       maxStartSeconds,
+      maxEndSeconds,
       found,
       reason:
         `The latest animation in the HTML starts at t=${maxStartSeconds.toFixed(2)}s, ` +
         `but for a ${durationSeconds.toFixed(2)}s scene the last animation must start no earlier than ` +
-        `t=${minRequired.toFixed(2)}s (D − 2.0). The timeline is compressed into the first ` +
+        `t=${minStartRequired.toFixed(2)}s (D − 2.0). The timeline is compressed into the first ` +
         `${(maxStartSeconds + 1).toFixed(1)}s, leaving the rest static or looping.`
     }
   }
 
-  return { ok: true, maxStartSeconds, found }
+  // Rule B — every animation finishes inside the timeline.
+  const overflow = timings.filter(
+    (t) => t.duration !== undefined && t.start + t.duration > maxEndAllowed + 0.001
+  )
+  if (overflow.length > 0) {
+    // Sort worst-first so the message names the most egregious one.
+    overflow.sort((a, b) => b.start + (b.duration ?? 0) - (a.start + (a.duration ?? 0)))
+    const worst = overflow[0]
+    const worstEnd = worst.start + (worst.duration ?? 0)
+    const summary = overflow
+      .slice(0, 4)
+      .map(
+        (t) =>
+          `    • ${t.source}: starts at ${t.start.toFixed(2)}s, duration ${t.duration!.toFixed(2)}s → ends at ${(t.start + (t.duration ?? 0)).toFixed(2)}s`
+      )
+      .join('\n')
+    return {
+      ok: false,
+      maxStartSeconds,
+      maxEndSeconds,
+      found,
+      reason:
+        `${overflow.length} animation(s) end AFTER the t=${maxEndAllowed.toFixed(2)}s deadline (D − 0.3s). ` +
+        `The renderer hard-stops at D=${durationSeconds.toFixed(2)}s, so these animations get cut off mid-progress — ` +
+        `text appears dim/faded, boxes are missing edges, write-ins show only the first few letters. Worst offender ends at ` +
+        `t=${worstEnd.toFixed(2)}s (${(worstEnd - durationSeconds).toFixed(2)}s past D). Offenders:\n${summary}\n` +
+        `Fix: SHORTEN each offending animation's duration so start + duration ≤ ${maxEndAllowed.toFixed(2)}s. ` +
+        `Do NOT push start times earlier — that would re-break rule A (timeline compression).`
+    }
+  }
+
+  return { ok: true, maxStartSeconds, maxEndSeconds, found }
 }
 
 const MAX_ATTEMPTS = 3
@@ -489,7 +627,7 @@ export async function generateSceneHtml(args: SceneRenderArgs): Promise<SceneHtm
 
     if (validation.ok) {
       log.push(
-        `attempt ${attempt}/${MAX_ATTEMPTS}: passed (last animation at t=${validation.maxStartSeconds.toFixed(2)}s, ${validation.found} timed reveals)`
+        `attempt ${attempt}/${MAX_ATTEMPTS}: passed (last start t=${validation.maxStartSeconds.toFixed(2)}s, latest end t=${validation.maxEndSeconds.toFixed(2)}s, ${validation.found} timed reveals)`
       )
       return {
         html: cleanHtml,
@@ -562,39 +700,58 @@ const REVIEWER_SYSTEM = `You are a strict quality reviewer for AI-generated anim
 
 Your input:
   1. An explainer that describes what a scene should show.
-  2. A screenshot of the final rendered frame of that scene.
+  2. A screenshot of the LAST FRAME of that scene — i.e. the moment just before the video
+     ends. Every animated element should be in its FINAL, fully-settled state by now.
 
 Your job: determine whether the rendered frame faithfully implements the explainer.
 Be strict — false positives (passing a broken scene) are MUCH worse than false negatives
-(failing a slightly-imperfect scene).
+(failing a slightly-imperfect scene). When a defect is plausible but you're not certain,
+FAIL the scene and let the system regenerate.
 
 Check, in this order:
 
-A. COMPLETENESS — every item described in the explainer should be visible in the image.
+A. ANIMATION COMPLETION — because this is the LAST frame, every element must be fully drawn
+   and fully opaque (unless the explainer explicitly requests a transparency / fade effect).
+   This is the most common defect — look for it FIRST:
+   - Text that appears DIM, FADED, GREY (when the explainer specifies white/yellow/blue/etc),
+     SEMI-TRANSPARENT, or otherwise less-bright than its neighbours. This means a write-in
+     animation was cut off — the text is frozen at e.g. 40% opacity. FAIL.
+   - Text where only the first part of the word/sentence is visible (write-on animation
+     cut off mid-letter). FAIL.
+   - A box, rectangle, or shape outline where the stroke didn't finish — a missing side,
+     a visible gap on one edge, a dashed line that stops short. FAIL.
+   - Two visually identical elements where ONE is bright and the OTHER is dim — the dim
+     one is almost certainly an animation-completion failure even if you can read both. FAIL.
+   When in doubt about whether something looks "intentionally subtle" vs "cut off mid-anim",
+   FAIL — the regeneration is cheap, a broken final video is not.
+
+B. COMPLETENESS — every item described in the explainer should be visible in the image.
    List any item from the explainer that is missing, cut off, or unreadable.
 
-B. SHAPE INTEGRITY — every drawn shape must be complete:
+C. SHAPE INTEGRITY — every drawn shape must be complete:
    - Rectangles / boxes: all 4 sides connected end-to-end. Flag any "3-sided box".
    - Triangles: all 3 sides connected.
    - Circles / ellipses: fully closed.
    - Lines and arrows: drawn from one endpoint to the other, with arrowhead present.
    - Dashed lines: visible across their intended length, not stopping short.
 
-C. OVERLAPS — no element may visually overlap another element's content. Flag:
+D. OVERLAPS — no element may visually overlap another element's content. Flag:
    - Text overlapping other text.
    - Text crossing through a divider, arrow, or box edge.
    - Boxes overlapping each other.
    - Text outside its container.
 
-D. LAYOUT BALANCE — content is reasonably balanced. Flag:
+E. LAYOUT BALANCE — content is reasonably balanced. Flag:
    - Text cut off at the screen edges.
    - Huge empty regions that should contain content.
    - Cramped, illegible clusters.
 
-E. COLOR FIDELITY — colors should match the explainer (e.g. "sky blue for DIAGNOSIS"
+F. COLOR FIDELITY — colors should match the explainer (e.g. "sky blue for DIAGNOSIS"
    means the DIAGNOSIS-related elements actually appear sky blue). Flag obvious color mismatches.
+   Distinguish this from Check A — if an element is BOTH the wrong color AND dimmer than
+   its peers, the root cause is A (animation cut off), not F.
 
-F. AESTHETIC — if the explainer requests a hand-drawn aesthetic, the strokes should look
+G. AESTHETIC — if the explainer requests a hand-drawn aesthetic, the strokes should look
    hand-drawn (some imperfection is fine). Flag completely mechanical / generic appearance
    only if it clearly violates the requested style.
 
@@ -608,13 +765,17 @@ Respond with ONLY a JSON object, no surrounding prose, no markdown fences:
 Rules for issues:
 - If pass is true, issues MUST be an empty array.
 - Each issue is one concrete, actionable problem an HTML generator can fix.
+  GOOD: "The text 'Non-parametric version of the t-test' appears faded grey while the
+         surrounding white text is fully opaque — its write-in animation was cut off."
   GOOD: "The sky-blue DIAGNOSIS box is missing its right edge — only 3 sides are visible."
   GOOD: "The text 'Diagnosis' overlaps with the text '= AT the moment' inside the top box."
-  GOOD: "The vertical divider crosses through the bottom annotation text."
   BAD:  "The scene doesn't look great."     (vague — not actionable)
   BAD:  "Improve the layout."                (vague — not actionable)
 
-- If a problem is borderline (e.g. minor stroke jitter), don't flag it. Only flag clear defects.`
+- If a problem is borderline (e.g. minor stroke jitter), don't flag it. Only flag clear defects.
+- For Check A issues, when describing the defect ALWAYS name the specific text/element so the
+  generator can locate it — "the bottom-right box's description text appears faded" not
+  "some text looks faded".`
 
 export interface VisualReviewResult {
   pass: boolean
@@ -693,13 +854,26 @@ function parseReviewerJson(text: string): VisualReviewResult {
     const issues = Array.isArray(parsed.issues)
       ? parsed.issues.map(String).filter((s) => s.trim() !== '')
       : []
+    // Defense-in-depth: if the reviewer claimed pass:true but ALSO listed issues,
+    // honor the issues. Some Claude responses contradict themselves and the issues
+    // are the more reliable signal.
+    if (pass && issues.length > 0) {
+      return { pass: false, issues, rawResponse: text }
+    }
     return { pass, issues, rawResponse: text }
   } catch {
-    // If parsing fails, treat as PASS (we don't want a parser bug to block scenes
-    // forever) but bubble up the raw text in the log.
+    // If parsing fails we now FAIL CLOSED instead of silently passing. A broken
+    // reviewer response is exactly the kind of ambiguity that lets bad scenes
+    // slip through; treat it as a fail with a synthetic issue, and the
+    // generate-then-review loop will retry with the issue as feedback. The
+    // runner caps retries via MAX_VISUAL_REVIEW_ATTEMPTS, so this can't loop
+    // forever.
     return {
-      pass: true,
-      issues: [],
+      pass: false,
+      issues: [
+        'Visual reviewer returned malformed JSON — could not confirm the scene is correct. ' +
+          'Regenerating the HTML with extra attention to animation completeness and shape integrity.'
+      ],
       rawResponse: text
     }
   }
