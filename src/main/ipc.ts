@@ -3,7 +3,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { IPC } from '@shared/types'
-import type { AppSettings, VoiceProfile, QueueEvent } from '@shared/types'
+import type {
+  AppSettings,
+  VoiceProfile,
+  QueueEvent,
+  DocumentEnqueueResult,
+  Job
+} from '@shared/types'
 import {
   getSettings,
   setSettings,
@@ -15,6 +21,7 @@ import { createJob, deleteJob, getJob, listJobs, resetJob, updateJob } from './d
 import { worker } from './worker'
 import { parseScript } from './pipeline/parser'
 import { ttsHealth, listVoices } from './pipeline/tts'
+import { extractScriptsFromDocument, sniffVideoName } from './pipeline/document'
 
 export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.SETTINGS_GET, () => getSettings())
@@ -57,6 +64,48 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     worker.wake()
     return job
   })
+
+  /**
+   * Multi-script import. Reads a .md document, pulls out every YAML script in
+   * it (fenced ```yaml blocks or `---`-separated docs), and enqueues each one.
+   * Per-script failures are returned alongside the successes — we don't abort
+   * the whole batch because the user paid the cost of writing 9 working
+   * scripts and 1 broken one and would be furious if we discarded the 9.
+   */
+  ipcMain.handle(
+    IPC.JOB_ENQUEUE_DOCUMENT,
+    async (_e, filePath: string): Promise<DocumentEnqueueResult> => {
+      const text = await fs.promises.readFile(filePath, 'utf8')
+      const chunks = extractScriptsFromDocument(text)
+      if (chunks.length === 0) {
+        throw new Error(
+          `No scripts found in ${path.basename(filePath)}. Expected one or more YAML scripts, either wrapped in \`\`\`yaml fenced code blocks or separated by lines that contain just \`---\`. Each script must include a \`video_name:\` line.`
+        )
+      }
+      const queued: Job[] = []
+      const errors: DocumentEnqueueResult['errors'] = []
+      for (let i = 0; i < chunks.length; i++) {
+        try {
+          const spec = parseScript(chunks[i])
+          const job = createJob({
+            video_name: spec.video_name,
+            script_yaml: chunks[i],
+            script_path: filePath
+          })
+          broadcast({ type: 'created', job })
+          queued.push(job)
+        } catch (err: any) {
+          errors.push({
+            index: i + 1,
+            videoName: sniffVideoName(chunks[i]),
+            message: err?.message ?? String(err)
+          })
+        }
+      }
+      if (queued.length > 0) worker.wake()
+      return { queued, errors, total: chunks.length }
+    }
+  )
 
   ipcMain.handle(IPC.JOB_LIST, () => listJobs())
   ipcMain.handle(IPC.JOB_GET, (_e, id: string) => getJob(id))
@@ -110,6 +159,18 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
       ]
     })
     return res.canceled ? [] : res.filePaths
+  })
+
+  ipcMain.handle(IPC.PICK_DOCUMENT, async () => {
+    const win = getMainWindow()
+    const res = await dialog.showOpenDialog(win!, {
+      properties: ['openFile'],
+      filters: [
+        { name: 'Markdown / script document', extensions: ['md', 'markdown', 'txt', 'yml', 'yaml'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    })
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
   })
 
   ipcMain.handle(IPC.OPEN_PATH, async (_e, target: string) => {

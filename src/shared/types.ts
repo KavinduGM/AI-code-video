@@ -102,6 +102,18 @@ export interface QueueEvent {
   job: Job
 }
 
+/**
+ * Result of importing a multi-script .md document. Partial success is
+ * supported — `queued` is whatever parsed cleanly, `errors` is the rest
+ * with the original 1-based index in the document and (best-effort) the
+ * video_name we could sniff out before parsing failed.
+ */
+export interface DocumentEnqueueResult {
+  queued: Job[]
+  errors: { index: number; videoName?: string; message: string }[]
+  total: number
+}
+
 // IPC channel names
 export const IPC = {
   // settings
@@ -114,6 +126,7 @@ export const IPC = {
   // queue / jobs
   JOB_ENQUEUE: 'job:enqueue',
   JOB_ENQUEUE_FILE: 'job:enqueue-file',
+  JOB_ENQUEUE_DOCUMENT: 'job:enqueue-document',
   JOB_LIST: 'job:list',
   JOB_CANCEL: 'job:cancel',
   JOB_REMOVE: 'job:remove',
@@ -123,6 +136,7 @@ export const IPC = {
   // misc
   PICK_FOLDER: 'dialog:pick-folder',
   PICK_SCRIPT: 'dialog:pick-script',
+  PICK_DOCUMENT: 'dialog:pick-document',
   OPEN_PATH: 'shell:open-path',
   TEMPLATE_GET: 'template:get',
   TTS_HEALTH: 'tts:health',

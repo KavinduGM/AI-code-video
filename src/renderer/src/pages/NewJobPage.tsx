@@ -53,11 +53,49 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
     if (queued.length) setTimeout(onQueued, 400)
   }
 
+  async function enqueueFromDocument() {
+    setError(null)
+    setOk(null)
+    const file = await window.api.dialog.pickDocument()
+    if (!file) return
+    setBusy(true)
+    try {
+      const { queued, errors, total } = await window.api.jobs.enqueueDocument(file)
+      if (queued.length > 0) {
+        setOk(
+          `Queued ${queued.length} of ${total} script(s) from the document: ${queued
+            .map((j) => j.video_name)
+            .join(', ')}. Videos will render one at a time.`
+        )
+      }
+      if (errors.length > 0) {
+        setError(
+          `${errors.length} of ${total} script(s) failed to parse and were skipped:\n` +
+            errors
+              .map(
+                (e) =>
+                  `  • Script #${e.index}${e.videoName ? ` (${e.videoName})` : ''}: ${e.message}`
+              )
+              .join('\n')
+        )
+      }
+      if (queued.length > 0) setTimeout(onQueued, 600)
+    } catch (err: any) {
+      // Whole-document failure (file unreadable, no scripts found, etc.)
+      setError(err?.message ?? String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <>
       <h2>New job</h2>
       <div className="sub">
-        Paste a script (YAML) or pick one or more script files. Multiple files are queued in order.
+        Paste a single script, pick one or more <span className="code-inline">.yml</span> files,
+        or upload a <span className="code-inline">.md</span> document that bundles several scripts
+        (in <span className="code-inline">```yaml</span> fenced blocks, or separated by{' '}
+        <span className="code-inline">---</span> lines). Every queued job renders sequentially.
       </div>
 
       {error && <div className="banner err">{error}</div>}
@@ -77,6 +115,9 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
           </button>
           <button className="secondary" onClick={enqueueFromFiles} disabled={busy}>
             Pick file(s) and queue
+          </button>
+          <button className="secondary" onClick={enqueueFromDocument} disabled={busy}>
+            Import .md document
           </button>
           <button
             className="ghost"

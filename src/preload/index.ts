@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/types'
 import type {
   AppSettings,
+  DocumentEnqueueResult,
   Job,
   QueueEvent,
   VoiceProfile
@@ -24,6 +25,8 @@ const api = {
       ipcRenderer.invoke(IPC.JOB_ENQUEUE, { script_yaml }),
     enqueueFile: (filePath: string): Promise<Job> =>
       ipcRenderer.invoke(IPC.JOB_ENQUEUE_FILE, filePath),
+    enqueueDocument: (filePath: string): Promise<DocumentEnqueueResult> =>
+      ipcRenderer.invoke(IPC.JOB_ENQUEUE_DOCUMENT, filePath),
     list: (): Promise<Job[]> => ipcRenderer.invoke(IPC.JOB_LIST),
     get: (id: string): Promise<Job | null> => ipcRenderer.invoke(IPC.JOB_GET, id),
     cancel: (id: string) => ipcRenderer.invoke(IPC.JOB_CANCEL, id),
@@ -38,7 +41,8 @@ const api = {
   dialog: {
     pickFolder: (defaultPath?: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.PICK_FOLDER, defaultPath),
-    pickScripts: (): Promise<string[]> => ipcRenderer.invoke(IPC.PICK_SCRIPT)
+    pickScripts: (): Promise<string[]> => ipcRenderer.invoke(IPC.PICK_SCRIPT),
+    pickDocument: (): Promise<string | null> => ipcRenderer.invoke(IPC.PICK_DOCUMENT)
   },
   shellOpen: (target: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_PATH, target),
   template: {
