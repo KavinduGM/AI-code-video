@@ -60,8 +60,16 @@ Hard requirements you MUST follow:
    RECOMMENDED write-on patterns (use these, they don't loop):
    - SVG hand-drawn stroke write-on: set \`stroke-dasharray: <pathLength>; stroke-dashoffset: <pathLength>;\`
      and animate \`stroke-dashoffset: 0\` with a single \`forwards\` CSS keyframe or one GSAP tween.
-   - Letter-by-letter text write-on: stagger each <span> with a GSAP timeline (no repeat),
-     or use CSS \`@keyframes\` with \`animation-delay\` per letter and \`animation-iteration-count: 1\`.
+   - Letter-by-letter text write-on: ONLY for SHORT headings/titles (≤ ~24 characters). Stagger
+     each <span> with a GSAP timeline (no repeat) or CSS \`@keyframes\` with per-letter
+     \`animation-delay\`, \`animation-iteration-count: 1\`.
+   - Body / supporting lines (anything longer than a short heading): animate the WHOLE LINE as a
+     single element — one fade-in or one left-to-right clip/wipe reveal per line. Do NOT split long
+     body lines into per-letter spans. Per-letter on every line explodes the DOM and the output
+     size, which causes the document to get truncated and only the first element to render. When a
+     style hint says "all text writes in letter by letter", interpret it as: headings type on
+     letter-by-letter, and body lines write on smoothly as a single quick reveal — the viewer reads
+     this as the same hand-drawn feel without the cost.
 
 5. THE ANIMATION MUST GENUINELY FILL THE ENTIRE DURATION D WITH UNIQUE, PROGRESSIVE CONTENT.
    This is the single most important rule and the one most often violated:
@@ -233,6 +241,26 @@ Hard requirements you MUST follow:
        occupy overlapping screen rectangles when their animations finish, the layout is wrong
        — rework it with proper flex/grid structure.
 
+    i) NEVER BREAK A WORD ACROSS TWO LINES. This is a HARD requirement — a word like "Supports"
+       must never render as "S" on one line and "upports" on the next, and "students" must never
+       split into "st" / "udents". Each labeled text line from the explainer (the quoted strings)
+       must sit on ONE visual line. Enforce ALL of these on every text element:
+         - \`white-space: nowrap;\`            (the line never wraps at all)
+         - \`overflow-wrap: normal;\`          (never break inside a word)
+         - \`word-break: keep-all;\`           (never break inside a word)
+       Then make the line FIT the frame width. The usable width is the stage width minus the
+       horizontal padding on both sides. Choose a font-size such that the LONGEST single line in
+       the scene fits within that usable width. When in doubt, pick a smaller font-size — a
+       readable line that fits is always better than a large line that wraps or clips.
+       Rough budget for a 1080-px-wide portrait stage with ~60px side padding (≈960px usable):
+       a handwriting font at ~48–60px comfortably fits ~30–38 characters per line; if your
+       longest line is longer than that, drop the font-size accordingly. If a single line is
+       genuinely too long to fit at a reasonable size, you MAY reduce only that line's font-size,
+       but it still must stay on one line with the rules above.
+
+    j) Keep every line within the horizontal safe area — text must not touch or run off the left
+       or right edges. Maintain the side padding from rule 14's stage example.
+
 15. SHAPE INTEGRITY — geometric shapes must be COMPLETE.
     Every rendered shape is reviewed by an automated visual reviewer that rejects partial
     shapes. To pass review:
@@ -369,6 +397,14 @@ VERIFICATION before submitting:
 - LAYOUT: dividers / arrows / dashed lines have explicit dimensions and do not extend
   past the region they belong to.
 - LAYOUT: at the final frame, NO two visible elements share screen space.
+- LAYOUT: EVERY quoted text line sits on ONE visual line — white-space: nowrap, overflow-wrap:
+  normal, word-break: keep-all. NO word is split across two lines. The font-size is small enough
+  that the LONGEST line fits within the stage width minus side padding.
+- COMPLETENESS: EVERY step in the explainer is built as its own element and reveals on the
+  timeline. The final frame shows ALL of them, not just the heading. No element re-types or
+  re-animates to fill time.
+- ECONOMY: body/supporting lines animate as ONE write-in each (not per-letter). Per-letter
+  is only for short headings. This keeps the document small enough to finish in one response.
 
 Return ONLY the full HTML document, beginning with <!DOCTYPE html>.`
 }
@@ -607,7 +643,10 @@ export async function generateSceneHtml(args: SceneRenderArgs): Promise<SceneHtm
 
     const resp = await client.messages.create({
       model: args.model || 'claude-opus-4-7',
-      max_tokens: 16000,
+      // Dense scenes (6+ steps, letter-by-letter spans) generate a LOT of HTML.
+      // 16k was truncating the densest scenes mid-document, leaving only the
+      // first element built and the rest never revealed. 32k gives ample room.
+      max_tokens: 32000,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userPrompt }]
     })
@@ -618,8 +657,37 @@ export async function generateSceneHtml(args: SceneRenderArgs): Promise<SceneHtm
       .join('\n')
       .trim()
 
-    const html = extractHtml(text)
-    const { html: cleanHtml, sanitized } = sanitizeLoops(html)
+    // If the model hit the output cap, the HTML is almost certainly truncated
+    // (cut off mid-document → only the first elements built, the classic
+    // "only step 1 renders and loops" failure). Treat it as a retryable
+    // validation failure instead of a hard throw, and tell the next attempt
+    // to be more economical.
+    if (resp.stop_reason === 'max_tokens') {
+      lastReason =
+        'The HTML was cut off because it exceeded the output token budget. The composition ' +
+        'was incomplete — later steps were never written, so only the first element(s) render. ' +
+        'Be more economical: animate body lines as ONE write-in per line (not per-letter), reserve ' +
+        'letter-by-letter for short headings only, and avoid needless wrapper markup.'
+      log.push(`attempt ${attempt}/${MAX_ATTEMPTS}: FAILED — output truncated at token cap`)
+      continue
+    }
+
+    let cleanHtml: string
+    let sanitized: string[]
+    try {
+      const html = extractHtml(text)
+      const cleaned = sanitizeLoops(html)
+      cleanHtml = cleaned.html
+      sanitized = cleaned.sanitized
+    } catch (err: any) {
+      // Incomplete / malformed document — retry rather than aborting the job.
+      lastReason =
+        `The response was not a complete HTML document (${err?.message ?? err}). ` +
+        `Return ONE complete document from <!DOCTYPE html> to </html> with all steps built.`
+      log.push(`attempt ${attempt}/${MAX_ATTEMPTS}: FAILED — ${lastReason}`)
+      continue
+    }
+
     const validation = validateAnimationCoverage(cleanHtml, args.durationSeconds)
 
     lastSanitized = sanitized
@@ -640,6 +708,16 @@ export async function generateSceneHtml(args: SceneRenderArgs): Promise<SceneHtm
 
     lastReason = validation.reason ?? 'unknown failure'
     log.push(`attempt ${attempt}/${MAX_ATTEMPTS}: FAILED — ${lastReason}`)
+  }
+
+  // Every attempt failed before producing a usable document (all truncated or
+  // malformed). Fail loudly rather than handing an empty string to the renderer.
+  if (!lastHtml) {
+    throw new Error(
+      `Claude failed to produce a complete HTML document for this scene after ${MAX_ATTEMPTS} attempts. ` +
+        `Last reason: ${lastReason || 'unknown'}. This scene may have too much content for one composition — ` +
+        `consider splitting it into two scenes.`
+    )
   }
 
   return {
@@ -727,6 +805,11 @@ A. ANIMATION COMPLETION — because this is the LAST frame, every element must b
 
 B. COMPLETENESS — every item described in the explainer should be visible in the image.
    List any item from the explainer that is missing, cut off, or unreadable.
+   - SPECIAL CASE — "only the first element rendered": if the explainer lists several steps/lines
+     but the frame shows ONLY the heading (or only the first line) with the rest of the frame
+     empty, FAIL and say so explicitly. This is a broken render where later steps never appeared.
+     Name each missing step. A scene with a large empty lower region and only the top line present
+     is ALWAYS a failure.
 
 C. SHAPE INTEGRITY — every drawn shape must be complete:
    - Rectangles / boxes: all 4 sides connected end-to-end. Flag any "3-sided box".
@@ -745,6 +828,12 @@ E. LAYOUT BALANCE — content is reasonably balanced. Flag:
    - Text cut off at the screen edges.
    - Huge empty regions that should contain content.
    - Cramped, illegible clusters.
+
+E2. BROKEN WORDS — no word may be split across two lines. FAIL if you see a word hyphen-less-
+   wrapped mid-word, e.g. "Supports" rendered as "S" at the end of one line and "upports" at the
+   start of the next, or "students" as "st" + "udents". Quote the exact broken word in the issue.
+   A single quoted line from the explainer must appear on ONE visual line; if it wrapped at all,
+   the font is too large for the frame — flag it so the next attempt shrinks the font.
 
 F. COLOR FIDELITY — colors should match the explainer (e.g. "sky blue for DIAGNOSIS"
    means the DIAGNOSIS-related elements actually appear sky blue). Flag obvious color mismatches.
@@ -769,6 +858,12 @@ Rules for issues:
          surrounding white text is fully opaque — its write-in animation was cut off."
   GOOD: "The sky-blue DIAGNOSIS box is missing its right edge — only 3 sides are visible."
   GOOD: "The text 'Diagnosis' overlaps with the text '= AT the moment' inside the top box."
+  GOOD: "Only the heading 'D662 Exam Tip' is visible; Steps 2–6 (the three Tier lines, the
+         'Memory Hook:' line, and the yellow summary line) are entirely absent — the lower two-
+         thirds of the frame is empty."
+  GOOD: "The word 'Supports' is split across two lines — 'S' sits at the end of line one and
+         'upports' wraps to line two. Shrink the font so 'Multi-Tiered System of Supports' fits
+         on one line."
   BAD:  "The scene doesn't look great."     (vague — not actionable)
   BAD:  "Improve the layout."                (vague — not actionable)
 
@@ -914,7 +1009,7 @@ export function sanitizeLoops(html: string): { html: string; sanitized: string[]
     return `${a}${b}`
   })
 
-  // ---- GSAP: repeat: -1 / repeat: N>0 -----------------------------------
+  // ---- GSAP: repeat: -1 / repeat: N>0 (object-literal form) --------------
   out = out.replace(/repeat\s*:\s*-?\d+/g, (m) => {
     const v = parseInt(m.split(':')[1].trim(), 10)
     if (v !== 0) {
@@ -922,6 +1017,24 @@ export function sanitizeLoops(html: string): { html: string; sanitized: string[]
       return 'repeat: 0'
     }
     return m
+  })
+
+  // ---- GSAP: .repeat(-1) / .repeat(N>0) (chained method-call form) -------
+  // e.g. gsap.timeline().repeat(-1) or tl.repeat(3) — not caught by the
+  // object-literal rule above. Force the count to 0.
+  out = out.replace(/\.repeat\s*\(\s*-?\d+\s*\)/g, (m) => {
+    const v = parseInt(m.replace(/[^\-\d]/g, ''), 10)
+    if (v !== 0) {
+      notes.push(`gsap: ${m.trim()} → .repeat(0)`)
+      return '.repeat(0)'
+    }
+    return m
+  })
+
+  // ---- GSAP: .yoyo(true) (chained method-call form) ---------------------
+  out = out.replace(/\.yoyo\s*\(\s*true\s*\)/g, () => {
+    notes.push('gsap: .yoyo(true) → .yoyo(false)')
+    return '.yoyo(false)'
   })
 
   // ---- GSAP: yoyo: true -------------------------------------------------
