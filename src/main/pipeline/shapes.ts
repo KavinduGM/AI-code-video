@@ -33,6 +33,19 @@ export const SHAPE_STYLE_ID = 'hf-shapes'
  */
 function shapeCss(): string {
   return `<style id="${SHAPE_STYLE_ID}">
+  /* -----------------------------------------------------------------
+     GLOBAL LOOP KILL — this is a one-pass write-on video. Force EVERY
+     CSS animation to run exactly once and hold its end state, so nothing
+     can flicker/pulse/loop regardless of what the generator wrote.
+     fill-mode:both keeps each element in its hidden 0% state before its
+     delay (preserving the staggered reveal) and its final state after.
+     ----------------------------------------------------------------- */
+  *, *::before, *::after {
+    animation-iteration-count: 1 !important;
+    animation-fill-mode: both !important;
+    animation-direction: normal !important;
+  }
+
   .hf-box, .hf-circle {
     position: relative;
     box-sizing: border-box;
@@ -54,16 +67,17 @@ function shapeCss(): string {
     padding: 60px;
     aspect-ratio: 1 / 1;
   }
-  /* The outline. A CSS border on a full-inset layer — always fully closed. */
+  /* The outline: a clean CSS border on a full-inset layer — always fully
+     closed, crisp (no hand-drawn wobble), with a slight rounding. Shapes are
+     clean by design; the hand-drawn feel is reserved for TEXT only. */
   .hf-box::before, .hf-circle::before {
     content: "";
     position: absolute;
     inset: 0;
     border: var(--hf-bw) solid currentColor;
-    filter: url(#hf-rough);  /* hand-drawn wobble on the border only */
     pointer-events: none;
   }
-  .hf-box::before { border-radius: 18px 12px 20px 10px; }
+  .hf-box::before { border-radius: 14px; }
   .hf-circle::before { border-radius: 50%; }
   /* Text lines inside a shape never wrap mid-word and never touch the border. */
   .hf-box > *, .hf-circle > * {
@@ -72,15 +86,7 @@ function shapeCss(): string {
     word-break: keep-all;
     max-width: 100%;
   }
-</style>
-<svg id="hf-shape-defs" aria-hidden="true" width="0" height="0" style="position:absolute">
-  <defs>
-    <filter id="hf-rough" x="-5%" y="-5%" width="110%" height="110%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.013" numOctaves="2" seed="7" result="noise"/>
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale="5" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-  </defs>
-</svg>`
+</style>`
 }
 
 /**
@@ -132,14 +138,21 @@ export function shapeGuideForPrompt(): string {
     </div>
 
   HARD RULES:
+    - Shapes are CLEAN, not hand-drawn. The outline is a crisp CSS border. Do
+      NOT try to make the box/circle look hand-drawn, wobbly, or sketchy. The
+      hand-drawn marker style is for TEXT only.
     - NEVER draw a box outline with an SVG <rect>/<path> stroke or a
       stroke-dashoffset write-on. That is the #1 cause of "one side missing".
       Use .hf-box / .hf-circle instead — the border is a CSS border and is
       always closed.
     - NEVER absolutely-position text on top of a separately-drawn box. Text goes
       INSIDE .hf-box / .hf-circle as child elements, in normal flow.
-    - To animate a box in, fade/scale the .hf-box element itself (opacity 0→1);
-      do NOT animate a stroke to "draw" the outline.
+    - REVEAL ORDER: reveal the shape FIRST (fade/scale the .hf-box or .hf-circle
+      element itself, opacity 0→1), THEN reveal its inner text lines ONE AFTER
+      ANOTHER with staggered start times — never all inner lines at once, and
+      never the text at the same instant as the shape. Do NOT animate a stroke
+      to "draw" the outline.
+    - Every reveal plays ONCE and holds. No pulsing/looping the shape or its text.
     - Keep a box within the safe width — the primitive caps at 900px; if your
       text is longer, reduce the child font-size so it fits on one line.`
 }

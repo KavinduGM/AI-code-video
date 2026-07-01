@@ -131,14 +131,19 @@ This runs only for 9:16 and only adds work when a scene actually overflows. If t
 
 You can put text inside boxes and circles — just describe them normally in the explainer (e.g. *"a hand-drawn rectangular box with a sky-blue outline; inside, three white lines…"*). You don't write any HTML. Two common defects are fixed **structurally**, not by asking Claude nicely:
 
-- **Open sides** (a rectangle missing one edge) — the system provides a guaranteed **closed** box/circle primitive whose outline is a real CSS border drawn on a full-inset layer. A CSS border can't render an open side; the hand-drawn wobble is a displacement filter on the border only, so it still looks marker-drawn.
+- **Open sides** (a rectangle missing one edge) — the system provides a guaranteed **closed** box/circle primitive whose outline is a real CSS border drawn on a full-inset layer. A CSS border can't render an open side. Shapes are drawn **clean/crisp** (the hand-drawn marker style is reserved for text only).
 - **Text overlapping the outline** — text goes *inside* the shape as padded children, so the box auto-sizes around it and text can never touch the border. After generation the app measures the real geometry and, if any text sits on a shape's outline, regenerates with that exact feedback.
 
 So for boxed content you get closed outlines and no text-on-border overlap without doing anything special in the script.
 
 ### Visual review & surgical repair
 
-After a scene renders, the app extracts the final frame and has Claude (vision) review it against the explainer. If it finds issues, the scene is repaired up to **10 times** — but the repair is **surgical**, not a full rewrite:
+After a scene renders it goes through two reviewers:
+
+- **Motion audit (deterministic):** the app samples ~16 frames across the whole scene and measures the "ink over time." It catches defects a single frame can't — **looping/flicker** (content that disappears and reappears) and **all-at-once** reveals (no progressive animation). This is what makes the reviewer aware of motion instead of judging one still. On top of that, every scene has a global "run once and hold" rule injected, so CSS animations structurally cannot loop. When the audit flags something it hands the repair step a **system-authored guided fix** ("make every animation play once and hold…", "stagger the reveals…") — telling the model *what to do*, not just the symptom.
+- **Vision review:** Claude looks at the final frame for cropping, missing elements, wrong colors, and shape/overlap defects.
+
+If either finds issues, the scene is repaired up to **10 times** — but the repair is **surgical**, not a full rewrite:
 
 - Claude is given the current working HTML and the specific issues, and returns **minimal find/replace edits** (like a diff). The app applies them deterministically, so every part not related to an issue stays **byte-for-byte identical**. Fixing one cropped word can't reshuffle the rest of the scene.
 - The app keeps the version with the **fewest issues** and **discards any repair that makes things worse**, so a fix can never regress the scene.

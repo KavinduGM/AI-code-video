@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import ffmpegPath from 'ffmpeg-static'
 import ffprobeStatic from 'ffprobe-static'
 import type { Transition, TransitionType } from '@shared/types'
@@ -274,6 +275,52 @@ function mapTransitionToXfade(t: TransitionType): string | null {
 
 export function ensureDir(dir: string) {
   fs.mkdirSync(dir, { recursive: true })
+}
+
+/**
+ * Sample the rendered video at `count` evenly-spaced times and return, for each
+ * sampled frame, the fraction of pixels that are "ink" (bright content on the
+ * black background). This is the raw signal the motion audit uses to detect
+ * looping/flicker (the ink amount oscillates) and all-at-once reveals (ink jumps
+ * to full immediately). Frames are downscaled to a tiny grayscale buffer so the
+ * whole thing is a single fast ffmpeg pass with no image-decoder dependency.
+ */
+export async function sampleInkFractions(
+  args: { videoIn: string; count: number; durationSeconds: number; workDir: string },
+  onLog?: (l: string) => void
+): Promise<number[]> {
+  const W = 64
+  const H = 114 // ~9:16
+  const frameSize = W * H
+  const rawPath = path.join(args.workDir, `motion-${randomUUID()}.raw`)
+  const fps = `${args.count}/${args.durationSeconds.toFixed(3)}`
+  try {
+    await runFfmpeg(
+      [
+        '-y',
+        '-i', args.videoIn,
+        '-vf', `fps=${fps},scale=${W}:${H},format=gray`,
+        '-frames:v', String(args.count),
+        '-f', 'rawvideo',
+        '-pix_fmt', 'gray',
+        rawPath
+      ],
+      onLog
+    )
+    const buf = await fs.promises.readFile(rawPath)
+    const frames = Math.floor(buf.length / frameSize)
+    const THRESH = 40 // luma above this counts as content (background is ~0)
+    const inks: number[] = []
+    for (let f = 0; f < frames; f++) {
+      const base = f * frameSize
+      let ink = 0
+      for (let p = 0; p < frameSize; p++) if (buf[base + p] > THRESH) ink++
+      inks.push(ink / frameSize)
+    }
+    return inks
+  } finally {
+    fs.promises.rm(rawPath, { force: true }).catch(() => {})
+  }
 }
 
 /**

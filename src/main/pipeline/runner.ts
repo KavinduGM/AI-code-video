@@ -11,8 +11,10 @@ import {
   extractFrame,
   muxAudioWithVideo,
   probeDurationSeconds,
+  sampleInkFractions,
   ensureDir
 } from './ffmpeg'
+import { analyzeMotion } from './motion'
 import { getSettings, findProfileByName, getStoragePaths } from '../settings'
 
 const MAX_VISUAL_REVIEW_ATTEMPTS = 10
@@ -132,18 +134,39 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
         /* non-fatal */
       }
 
+      // --- MOTION AUDIT (deterministic, sees the whole timeline) ---
+      // Sample the rendered video across time and detect looping/flicker and
+      // all-at-once reveals — defects a single final frame cannot show.
+      let motionIssues: string[] = []
+      cb.onProgress(baseProgress + sceneShare * 0.55, `${tag}: motion audit`)
+      try {
+        const inks = await sampleInkFractions(
+          { videoIn: mp4, count: 16, durationSeconds: audioDuration, workDir: sceneDir },
+          () => {}
+        )
+        const verdict = analyzeMotion(inks)
+        motionIssues = verdict.issues
+        if (verdict.issues.length > 0) {
+          cb.onLog({
+            ts: Date.now(),
+            level: 'warn',
+            message: `${tag}: motion audit found ${verdict.loop ? 'LOOPING/FLICKER' : ''}${verdict.loop && verdict.allAtOnce ? ' + ' : ''}${verdict.allAtOnce ? 'NO-STAGGER (all at once)' : ''}.`
+          })
+        } else if (!verdict.blank) {
+          cb.onLog(info(`${tag}: motion audit OK — progressive reveal, no looping.`))
+        }
+      } catch (err: any) {
+        cb.onLog(info(`${tag}: motion audit skipped (${err.message}).`))
+      }
+
       cb.onProgress(baseProgress + sceneShare * 0.6, `${tag}: visual review (frame extraction)`)
       const framePath = path.join(sceneDir, `review_${idx}.jpg`)
       const grabAt = Math.max(0.1, audioDuration - 0.05)
+      let visionIssues: string[] = []
+      let reviewed = false
       try {
         await extractFrame({ videoIn: mp4, atSeconds: grabAt, out: framePath, quality: 3 }, (line) => cb.onLog(info(`ffmpeg: ${line}`)))
-      } catch (err: any) {
-        cb.onLog({ ts: Date.now(), level: 'warn', message: `${tag}: frame extraction failed (${err.message}) — accepting this render.` })
-        return { mp4, issues: [], reviewed: false }
-      }
-
-      cb.onProgress(baseProgress + sceneShare * 0.65, `${tag}: visual review (Claude vision)`)
-      try {
+        cb.onProgress(baseProgress + sceneShare * 0.65, `${tag}: visual review (Claude vision)`)
         const review = await reviewScene({
           apiKey: settings.anthropic_api_key,
           model: settings.claude_model,
@@ -151,11 +174,15 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
           explainer: scene.explainer,
           ratio: spec.ratio
         })
-        return { mp4, issues: review.pass ? [] : review.issues, reviewed: true }
+        visionIssues = review.pass ? [] : review.issues
+        reviewed = true
       } catch (err: any) {
-        cb.onLog({ ts: Date.now(), level: 'warn', message: `${tag}: visual review call failed (${err.message}) — accepting this render.` })
-        return { mp4, issues: [], reviewed: false }
+        cb.onLog({ ts: Date.now(), level: 'warn', message: `${tag}: visual review failed (${err.message}) — relying on the motion audit for this render.` })
       }
+
+      // Motion issues come first — they're the deterministic, guided fixes.
+      const issues = [...motionIssues, ...visionIssues]
+      return { mp4, issues, reviewed: reviewed || motionIssues.length > 0 }
     }
 
     // Attempt 1 — full generation.

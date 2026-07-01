@@ -592,10 +592,17 @@ export function validateAnimationCoverage(
     }
   }
 
-  const minStartRequired = Math.max(0.5, durationSeconds - 2.0)
+  // Rule A — the reveals should span a reasonable portion of the scene so the
+  // timeline isn't crammed into the first second (which would read as
+  // "everything appeared at once"). We deliberately DON'T demand the last
+  // animation run until D−2.0 anymore: a calm static hold at the end is fine
+  // and healthy, and the old strict rule was pushing the model to invent
+  // time-filling ambient motion that turned into flicker/loops. A short static
+  // tail is now allowed; the deterministic motion audit (on the rendered video)
+  // is what distinguishes a fine hold from a real loop.
+  const minStartRequired = Math.max(0.5, durationSeconds * 0.4)
   const maxEndAllowed = durationSeconds - 0.3
 
-  // Rule A — last animation starts late enough that the timeline spans the scene.
   if (maxStartSeconds < minStartRequired) {
     return {
       ok: false,
@@ -604,9 +611,10 @@ export function validateAnimationCoverage(
       found,
       reason:
         `The latest animation in the HTML starts at t=${maxStartSeconds.toFixed(2)}s, ` +
-        `but for a ${durationSeconds.toFixed(2)}s scene the last animation must start no earlier than ` +
-        `t=${minStartRequired.toFixed(2)}s (D − 2.0). The timeline is compressed into the first ` +
-        `${(maxStartSeconds + 1).toFixed(1)}s, leaving the rest static or looping.`
+        `but for a ${durationSeconds.toFixed(2)}s scene the reveals must span at least the first ` +
+        `${minStartRequired.toFixed(2)}s (40% of the scene). Right now the timeline is compressed into ` +
+        `the first ${(maxStartSeconds + 1).toFixed(1)}s. Spread the element reveals out — but a calm ` +
+        `static hold AFTER the last reveal is fine; do NOT add looping/pulsing motion to fill time.`
     }
   }
 
