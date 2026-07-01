@@ -18,17 +18,17 @@
 # control over the vertical layout.
 #
 #   STRICT MARGINS (nothing is placed here):
-#     left 60px · right 60px · top 160px · bottom 240px
-#     (bottom is largest — that's where TikTok/Reels/Shorts put captions)
+#     left 60px · right 60px · top 160px · bottom 380px
+#     (bottom 380px ≈ 20% is RESERVED for voice captions — kept empty)
 #
-#   SAFE AREA: x[60 → 1020]  y[160 → 1680]   (960 wide × 1520 tall)
+#   SAFE AREA: x[60 → 1020]  y[160 → 1540]   (960 wide × 1380 tall)
 #
 #   HORIZONTAL BANDS (top → bottom):
-#     TOP     y 160  → 464
-#     UPPER   y 464  → 768
-#     MIDDLE  y 768  → 1072
-#     LOWER   y 1072 → 1376
-#     BOTTOM  y 1376 → 1680
+#     TOP     y 160  → 436
+#     UPPER   y 436  → 712
+#     MIDDLE  y 712  → 988
+#     LOWER   y 988  → 1264
+#     BOTTOM  y 1264 → 1540
 #
 #   COLUMNS (left → right):   LEFT · CENTER · RIGHT   (default: CENTER)
 #

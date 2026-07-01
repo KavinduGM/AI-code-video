@@ -17,13 +17,14 @@ export const NINE_SIXTEEN = {
 
   // Strict margins (the "no-go" band around the edge). Nothing — no text,
   // no shape, no stroke — may enter these. The bottom margin is deliberately
-  // the largest because TikTok / Reels / Shorts overlay captions, the
-  // username, and the action buttons there.
+  // the largest: it reserves the lower fifth of the frame so burned-in voice
+  // captions (and the TikTok / Reels / Shorts UI) have empty space to sit in.
+  // Everything the tool draws stays above this reserved caption band.
   margin: {
     left: 60,
     right: 60,
     top: 160,
-    bottom: 240
+    bottom: 380
   }
 } as const
 
@@ -32,12 +33,12 @@ export const SAFE_AREA = {
   left: NINE_SIXTEEN.margin.left, // 60
   right: NINE_SIXTEEN.width - NINE_SIXTEEN.margin.right, // 1020
   top: NINE_SIXTEEN.margin.top, // 160
-  bottom: NINE_SIXTEEN.height - NINE_SIXTEEN.margin.bottom, // 1680
+  bottom: NINE_SIXTEEN.height - NINE_SIXTEEN.margin.bottom, // 1540 (bottom 380 reserved for captions)
   get width() {
     return this.right - this.left // 960
   },
   get height() {
-    return this.bottom - this.top // 1520
+    return this.bottom - this.top // 1380
   }
 } as const
 

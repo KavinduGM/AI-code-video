@@ -95,17 +95,18 @@ For **9:16** videos the tool enforces a fixed layout grid on the 1080 × 1920 ca
 
 ```
 STRICT MARGINS (nothing is placed here):
-  left 60px · right 60px · top 160px · bottom 240px
-  (bottom is largest — that's where TikTok / Reels / Shorts put captions & buttons)
+  left 60px · right 60px · top 160px · bottom 380px
+  (bottom 380px ≈ 20% is RESERVED for burned-in voice captions & the
+   TikTok / Reels / Shorts UI — the tool keeps all content above it)
 
-SAFE AREA: x[60 → 1020]  y[160 → 1680]   (960 wide × 1520 tall)
+SAFE AREA: x[60 → 1020]  y[160 → 1540]   (960 wide × 1380 tall)
 
 HORIZONTAL BANDS (top → bottom):        COLUMNS (left → right):
-  TOP     y 160  → 464                    LEFT · CENTER · RIGHT
-  UPPER   y 464  → 768                     (default alignment: CENTER)
-  MIDDLE  y 768  → 1072
-  LOWER   y 1072 → 1376
-  BOTTOM  y 1376 → 1680
+  TOP     y 160  → 436                    LEFT · CENTER · RIGHT
+  UPPER   y 436  → 712                     (default alignment: CENTER)
+  MIDDLE  y 712  → 988
+  LOWER   y 988  → 1264
+  BOTTOM  y 1264 → 1540
 ```
 
 See [`templates/zone-map-9x16.svg`](templates/zone-map-9x16.svg) for a visual.
