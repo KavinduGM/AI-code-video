@@ -197,13 +197,15 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle(IPC.PICK_AUDIO, async () => {
     const win = getMainWindow()
-    const res = await dialog.showOpenDialog(win!, {
+    const opts: Electron.OpenDialogOptions = {
       properties: ['openFile'],
       filters: [
         { name: 'Audio', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'] },
         { name: 'All files', extensions: ['*'] }
       ]
-    })
+    }
+    // Parent-less dialog if the window isn't available, so the picker still opens.
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
   })
 

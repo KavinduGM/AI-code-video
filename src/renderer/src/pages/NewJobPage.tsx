@@ -15,8 +15,19 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
   const musicArg = () => music ?? undefined
 
   async function pickMusic() {
-    const file = await window.api.dialog.pickAudio()
-    if (file) setMusic(file)
+    setError(null)
+    if (typeof window.api?.dialog?.pickAudio !== 'function') {
+      setError(
+        'Audio picker not loaded yet. Fully quit the app and run it again (stop and restart "npm run dev") — the file picker lives in the preload script, which only updates on a full restart, not a hot reload.'
+      )
+      return
+    }
+    try {
+      const file = await window.api.dialog.pickAudio()
+      if (file) setMusic(file)
+    } catch (err: any) {
+      setError('Could not open the audio picker: ' + (err?.message ?? String(err)))
+    }
   }
 
   async function enqueueText() {

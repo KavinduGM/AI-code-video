@@ -38,8 +38,18 @@ export default function SettingsPage(): JSX.Element {
   }
 
   async function pickMusic() {
-    const file = await window.api.dialog.pickAudio()
-    if (file) update('background_music_path', file)
+    if (typeof window.api?.dialog?.pickAudio !== 'function') {
+      alert(
+        'Audio picker not loaded yet. Fully quit the app and run it again (stop and restart "npm run dev") — the file picker lives in the preload script, which only updates on a full restart, not a hot reload.'
+      )
+      return
+    }
+    try {
+      const file = await window.api.dialog.pickAudio()
+      if (file) update('background_music_path', file)
+    } catch (err: any) {
+      alert('Could not open the audio picker: ' + (err?.message ?? String(err)))
+    }
   }
 
   async function testTts() {
