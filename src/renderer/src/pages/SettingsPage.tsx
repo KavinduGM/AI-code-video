@@ -52,6 +52,22 @@ export default function SettingsPage(): JSX.Element {
     }
   }
 
+  function onMusicDrop(e: React.DragEvent) {
+    e.preventDefault()
+    const f = e.dataTransfer.files?.[0]
+    if (!f) return
+    const p = window.api.getPathForFile?.(f) || (f as unknown as { path?: string }).path || ''
+    if (!p) {
+      alert('Could not read the dropped file path — use the “Choose…” button instead.')
+      return
+    }
+    if (!/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(p)) {
+      alert('Please drop an audio file (mp3, wav, m4a, aac, ogg, or flac).')
+      return
+    }
+    update('background_music_path', p)
+  }
+
   async function testTts() {
     setChecking(true)
     setTtsCheck(null)
@@ -151,12 +167,12 @@ export default function SettingsPage(): JSX.Element {
         </label>
         <label className="field" style={{ marginTop: 12 }}>
           Background music (intro / outro)
-          <div className="path-row">
+          <div className="path-row" onDragOver={(e) => e.preventDefault()} onDrop={onMusicDrop}>
             <input
               type="text"
               value={settings.background_music_path}
               onChange={(e) => update('background_music_path', e.target.value)}
-              placeholder="Optional — plays under the intro & outro at 5%"
+              placeholder="Optional — drag & drop an audio file, or Choose…"
             />
             <button className="secondary" onClick={pickMusic}>Choose…</button>
             {settings.background_music_path && (
@@ -164,8 +180,10 @@ export default function SettingsPage(): JSX.Element {
             )}
           </div>
           <span className="hint">
-            Used only when a script has an <span className="code-inline">intro:</span> or{' '}
-            <span className="code-inline">outro:</span>. A job can override this on the New job tab.
+            Plays under the intro &amp; outro at 5% (only when a script has an{' '}
+            <span className="code-inline">intro:</span> or <span className="code-inline">outro:</span>).
+            Drag &amp; drop a file onto the box above, paste a path, or use Choose. A job can override this
+            on the New job tab. Remember to click <strong>Save settings</strong>.
           </span>
         </label>
       </div>

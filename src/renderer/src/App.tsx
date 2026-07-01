@@ -11,6 +11,18 @@ export default function App(): JSX.Element {
   const [tab, setTab] = useState<Tab>('queue')
   const [jobs, setJobs] = useState<Job[]>([])
 
+  // Prevent the window from navigating away when a file is dropped anywhere
+  // (Electron's default). Drop zones handle their own drops on top of this.
+  useEffect(() => {
+    const prevent = (e: DragEvent) => e.preventDefault()
+    window.addEventListener('dragover', prevent)
+    window.addEventListener('drop', prevent)
+    return () => {
+      window.removeEventListener('dragover', prevent)
+      window.removeEventListener('drop', prevent)
+    }
+  }, [])
+
   useEffect(() => {
     window.api.jobs.list().then(setJobs)
     const off = window.api.jobs.onEvent((event) => {

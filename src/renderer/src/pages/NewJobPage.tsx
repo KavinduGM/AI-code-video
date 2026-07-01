@@ -14,6 +14,27 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
 
   const musicArg = () => music ?? undefined
 
+  const AUDIO_RE = /\.(mp3|wav|m4a|aac|ogg|flac)$/i
+
+  function onMusicDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setError(null)
+    const f = e.dataTransfer.files?.[0]
+    if (!f) return
+    // Electron 32 removed File.path — resolve via the preload's webUtils helper,
+    // falling back to .path for older Electron.
+    const p = window.api.getPathForFile?.(f) || (f as unknown as { path?: string }).path || ''
+    if (!p) {
+      setError('Could not read the dropped file path — use the “Choose file” button instead.')
+      return
+    }
+    if (!AUDIO_RE.test(p)) {
+      setError('Please drop an audio file (mp3, wav, m4a, aac, ogg, or flac).')
+      return
+    }
+    setMusic(p)
+  }
+
   async function pickMusic() {
     setError(null)
     if (typeof window.api?.dialog?.pickAudio !== 'function') {
@@ -146,9 +167,22 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
             Load template
           </button>
         </div>
-        <div className="row" style={{ marginTop: 12, alignItems: 'center' }}>
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={onMusicDrop}
+          style={{
+            marginTop: 12,
+            padding: 12,
+            border: '1px dashed var(--border, #555)',
+            borderRadius: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap'
+          }}
+        >
           <button className="ghost" onClick={pickMusic} disabled={busy}>
-            {music ? 'Change background music' : 'Background music (optional)'}
+            {music ? 'Change background music' : 'Choose file'}
           </button>
           {music ? (
             <span className="meta">
@@ -156,7 +190,10 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
               <button className="ghost" onClick={() => setMusic(null)}>Clear</button>
             </span>
           ) : (
-            <span className="hint">Overrides the Settings default for these job(s). Plays under intro/outro at 5%.</span>
+            <span className="hint">
+              Background music (optional) — drag &amp; drop an audio file here, or use the button.
+              Overrides the Settings default; plays under intro/outro at 5%.
+            </span>
           )}
         </div>
       </div>

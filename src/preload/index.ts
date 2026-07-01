@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from '../shared/types'
 import type {
   AppSettings,
@@ -46,6 +46,15 @@ const api = {
     pickScripts: (): Promise<string[]> => ipcRenderer.invoke(IPC.PICK_SCRIPT),
     pickDocument: (): Promise<string | null> => ipcRenderer.invoke(IPC.PICK_DOCUMENT),
     pickAudio: (): Promise<string | null> => ipcRenderer.invoke(IPC.PICK_AUDIO)
+  },
+  // Electron 32 removed File.path — this returns the absolute path of a
+  // drag-and-dropped File so the renderer can use it.
+  getPathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return ''
+    }
   },
   shellOpen: (target: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_PATH, target),
   template: {
