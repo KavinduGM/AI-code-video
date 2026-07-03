@@ -104,9 +104,9 @@ export function buildAnimatedCardHtml(spec: AnimatedCardSpec): string {
     let fontSize: number
     if (li === 0) {
       // The exam-name line: one visual row inside its chip, sized to fit.
-      fontSize = Math.max(44, Math.min(96, Math.floor(880 / (0.62 * text.length))))
+      fontSize = Math.max(48, Math.min(108, Math.floor(900 / (0.6 * text.length))))
     } else {
-      fontSize = text.length <= 16 ? 84 : text.length <= 26 ? 72 : text.length <= 38 ? 62 : 54
+      fontSize = text.length <= 16 ? 92 : text.length <= 26 ? 80 : text.length <= 38 ? 70 : 60
     }
     // Explicit highlight phrases (word-sequence match, punctuation-insensitive).
     const chipRanges: { start: number; end: number }[] = []
@@ -179,21 +179,32 @@ export function buildAnimatedCardHtml(spec: AnimatedCardSpec): string {
   }
 
   // --- Subscribe CTA (outro) --------------------------------------------
+  // Entrance (pop / rise) plays ONCE on an outer wrapper; a gentle idle motion
+  // (button pulse, arrow bob) runs on the inner element so the CTA stays alive
+  // until the voice ends. The idle movement is ~14px at full resolution — under
+  // one pixel in the motion audit's downsampled frames, so it can never be
+  // mistaken for flicker.
   let ctaHtml = ''
   if (spec.subscribe) {
     const btnDelay = Math.min(lastWordDelay + 0.5, Math.max(t0, D - 1.3))
     const arrowDelay = Math.min(btnDelay + 0.4, Math.max(t0, D - 0.9))
+    const pulseDelay = Math.min(btnDelay + 0.8, Math.max(t0, D - 0.4))
+    const bobDelay = Math.min(arrowDelay + 0.7, Math.max(t0, D - 0.4))
     ctaHtml = `
-    <div class="sub" style="animation-delay:${btnDelay.toFixed(2)}s">
-      <span class="sub-label">SUBSCRIBE</span>
-      <span class="sub-bell">
-        <svg viewBox="0 0 24 24" width="40" height="40" fill="#17171A" aria-hidden="true"><path d="M12 22a2.6 2.6 0 0 0 2.55-2.1h-5.1A2.6 2.6 0 0 0 12 22Zm7.3-5.2-1.7-1.75V10.9a5.7 5.7 0 0 0-4.2-5.5V4.7a1.4 1.4 0 0 0-2.8 0v.7a5.7 5.7 0 0 0-4.2 5.5v4.15L4.7 16.8A1 1 0 0 0 5.45 18.5h13.1a1 1 0 0 0 .75-1.7Z"/></svg>
-      </span>
+    <div class="cta-pop" style="animation-delay:${btnDelay.toFixed(2)}s">
+      <div class="sub" style="animation-delay:${pulseDelay.toFixed(2)}s">
+        <span class="sub-label">SUBSCRIBE</span>
+        <span class="sub-bell">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="#E8412C" aria-hidden="true"><path d="M12 22a2.6 2.6 0 0 0 2.55-2.1h-5.1A2.6 2.6 0 0 0 12 22Zm7.3-5.2-1.7-1.75V10.9a5.7 5.7 0 0 0-4.2-5.5V4.7a1.4 1.4 0 0 0-2.8 0v.7a5.7 5.7 0 0 0-4.2 5.5v4.15L4.7 16.8A1 1 0 0 0 5.45 18.5h13.1a1 1 0 0 0 .75-1.7Z"/></svg>
+        </span>
+      </div>
     </div>
-    <svg class="arrow" style="animation-delay:${arrowDelay.toFixed(2)}s" viewBox="0 0 120 210" width="130" height="195" aria-hidden="true">
-      <path d="M60 14 L60 158" stroke="#E8412C" stroke-width="22" stroke-linecap="round" fill="none"/>
-      <path d="M20 124 L60 176 L100 124" stroke="#E8412C" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    </svg>`
+    <div class="arrow-pop" style="animation-delay:${arrowDelay.toFixed(2)}s">
+      <svg class="arrow-bob" style="animation-delay:${bobDelay.toFixed(2)}s" viewBox="0 0 120 260" width="120" height="240" aria-hidden="true">
+        <path d="M60 12 L60 208" stroke="#E8412C" stroke-width="22" stroke-linecap="round" fill="none"/>
+        <path d="M20 174 L60 226 L100 174" stroke="#E8412C" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+    </div>`
   }
 
   const fontParam = preset.font.trim().replace(/\s+/g, '+')
@@ -216,14 +227,18 @@ export function buildAnimatedCardHtml(spec: AnimatedCardSpec): string {
   .hlbg{position:absolute;inset:0;background:${preset.accent};border-radius:18px;transform:scaleX(0);
         transform-origin:left center;animation:sweep .38s cubic-bezier(.25,.8,.3,1) both;animation-iteration-count:1;z-index:0}
   .hlt{position:relative;z-index:1}
-  .sub{display:inline-flex;align-items:center;gap:20px;background:#17171A;border-radius:999px;
-       padding:16px 20px 16px 36px;opacity:0;animation:pop .5s cubic-bezier(.2,.9,.3,1.2) both;animation-iteration-count:1}
-  .sub-label{color:#fff;font-weight:900;font-size:42px;letter-spacing:1px}
+  .cta-pop{opacity:0;animation:pop .5s cubic-bezier(.2,.9,.3,1.2) both;animation-iteration-count:1}
+  .sub{display:inline-flex;align-items:center;gap:20px;background:#E8412C;border-radius:999px;
+       padding:16px 20px 16px 36px;animation:pulse 2.4s ease-in-out infinite}
+  .sub-label{color:#fff;font-weight:900;font-size:44px;letter-spacing:1px}
   .sub-bell{width:66px;height:66px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center}
-  .arrow{opacity:0;animation:wIn .5s ease-out both;animation-iteration-count:1}
+  .arrow-pop{opacity:0;animation:wIn .5s ease-out both;animation-iteration-count:1}
+  .arrow-bob{display:block;animation:bob 1.6s ease-in-out infinite}
   @keyframes wIn{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
   @keyframes sweep{from{transform:scaleX(0)}to{transform:scaleX(1)}}
   @keyframes pop{0%{opacity:0;transform:scale(.82)}100%{opacity:1;transform:scale(1)}}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(14px)}}
 </style>
 </head>
 <body>
