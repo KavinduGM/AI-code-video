@@ -142,14 +142,24 @@ ${bandLines}
 ${colLines}
 
   HOW TO PLACE CONTENT:
-    - If the explainer names a band for a line (e.g. "TOP band:", "(MIDDLE)",
-      "in the LOWER third"), put that line in the matching band. Structure .safe
-      as stacked band rows (each a flex row, vertically centered) and drop each
-      line into its named band. Default column alignment is CENTER unless a
-      column (LEFT/RIGHT) is named.
+    - Band names define the ORDER and rough vertical zone of the lines — they are
+      NOT an instruction to stretch the content across the whole safe area. Keep
+      the lines in the named order, but space them with comfortable, consistent
+      gaps (roughly 60–110px between items) as one cohesive block centered in the
+      safe area. Default column alignment is CENTER unless a column (LEFT/RIGHT)
+      is named.
     - If the explainer does NOT name bands, simply stack the lines in .safe with
       even spacing (the flex column already centers them). You still must keep
       everything inside .safe.
+    - FILL THE FRAME — no giant dead zones. This is a common defect: a scene with
+      only 3–5 short lines rendered small and spread out looks empty and cheap.
+      Size the content GENEROUSLY: headings ~90–120px, body lines ~58–76px (bigger
+      when the scene has few/short lines, smaller only when a long line must fit
+      the ${SAFE_AREA.width}px width). The composed block should occupy roughly 60–85% of the
+      safe-area height. If it still feels sparse, ADD small tasteful accents that
+      match the style — a short underline stroke under the heading, a small
+      supporting mark next to a key line — each revealing once and holding. Never
+      fill space by spreading a few small lines far apart.
     - Every text line still obeys the one-visual-line rule: white-space:nowrap,
       overflow-wrap:normal, word-break:keep-all, and a font-size small enough
       that the LONGEST line fits within the ${SAFE_AREA.width}px safe width. A line that

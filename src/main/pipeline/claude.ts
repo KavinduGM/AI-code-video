@@ -654,7 +654,10 @@ VERIFICATION before submitting:
 - LAYOUT: at the final frame, NO two visible elements share screen space.
 - LAYOUT: EVERY quoted text line sits on ONE visual line — white-space: nowrap, overflow-wrap:
   normal, word-break: keep-all. NO word is split across two lines. The font-size is small enough
-  that the LONGEST line fits within the stage width minus side padding.${
+  that the LONGEST line fits within the stage width minus side padding.
+- LAYOUT: the composition FILLS the frame — the content block occupies roughly 60–85% of the
+  safe-area height with comfortable (not huge) gaps. If the scene has few short lines, they are
+  sized LARGE (headings ~90–120px, body ~58–76px), never small-and-scattered with dead zones.${
     args.ratio === '9:16'
       ? `
 - SAFE ZONE (9:16): every element is a descendant of .safe; the required #stage > .safe scaffold
@@ -1543,10 +1546,14 @@ D. OVERLAPS — no element may visually overlap another element's content. Flag:
    - Boxes overlapping each other.
    - Text outside its container.
 
-E. LAYOUT BALANCE — content is reasonably balanced. Flag:
+E. LAYOUT BALANCE — content is reasonably balanced and FILLS the frame. Flag:
    - Text cut off at the screen edges.
    - Huge empty regions that should contain content.
    - Cramped, illegible clusters.
+   - SPARSE LAYOUT: the content is small and scattered with large dead gaps between
+     items (e.g. a few short lines spread far apart with most of the frame empty).
+     Flag it with a concrete fix: "increase the font sizes and tighten the vertical
+     gaps so the block fills the middle of the frame" — naming the lines involved.
 
 E2. BROKEN WORDS — no word may be split across two lines. FAIL if you see a word hyphen-less-
    wrapped mid-word, e.g. "Supports" rendered as "S" at the end of one line and "upports" at the
