@@ -2,7 +2,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Job, JobLogEntry, Transition } from '@shared/types'
 import { parseScript, dimensionsForRatio } from './parser'
-import { generateSceneHtml, reviewScene, repairSceneHtml, adaptTemplateHtml } from './claude'
+import {
+  generateSceneHtml,
+  reviewScene,
+  repairSceneHtml,
+  adaptTemplateHtml,
+  buildStaticIntroOutroCard
+} from './claude'
 import { computeSceneFeatures, saveTemplate, findBestTemplate } from './templates'
 import { generateAudio } from './tts'
 import { scaffoldProject, renderHyperframes } from './hyperframes'
@@ -120,11 +126,16 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
 
   const results: { finalMp4: string; durationSeconds: number; transitionOut: Transition }[] = []
 
+  // The intro's final HTML becomes a proven template for the outro (same style).
+  let introHtml: string | null = null
+
   for (let s = 0; s < segments.length; s++) {
     if (handle.cancelled) throw new Error('Cancelled')
     const seg = segments[s]
-    const res = await produceSegment(seg, s * segShare)
-    results.push(res)
+    const templateHtml = seg.kind === 'outro' && introHtml ? introHtml : undefined
+    const res = await produceSegment(seg, s * segShare, templateHtml)
+    if (seg.kind === 'intro') introHtml = res.html
+    results.push({ finalMp4: res.finalMp4, durationSeconds: res.durationSeconds, transitionOut: res.transitionOut })
   }
 
   cb.onLog(info(`All ${totalSegments} segment(s) saved. Beginning final concatenation…`))
@@ -160,8 +171,9 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
   // ================================================================
   async function produceSegment(
     seg: Segment,
-    baseProgress: number
-  ): Promise<{ finalMp4: string; durationSeconds: number; transitionOut: Transition }> {
+    baseProgress: number,
+    templateHtml?: string
+  ): Promise<{ finalMp4: string; durationSeconds: number; transitionOut: Transition; html: string }> {
     const segDir = path.join(jobWorkDir, seg.dirName)
     ensureDir(segDir)
     const projectDir = path.join(segDir, 'hyperframes')
@@ -259,35 +271,53 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
       return { mp4, issues, reviewed: reviewed || motionIssues.length > 0 }
     }
 
-    // Attempt 1 — full generation.
+    // Attempt 1 — either adapt the intro card as a template (outro), or generate.
     cb.onProgress(baseProgress + segShare * 0.2, `${seg.label}: composing HTML with Claude`)
-    cb.onLog(info(`${seg.label}: asking Claude (${settings.claude_model}) for HTML`))
-    const gen = await generateSceneHtml({
-      apiKey: settings.anthropic_api_key,
-      model: settings.claude_model,
-      ratio: spec.ratio,
-      durationSeconds: audioDuration,
-      sceneIndex: seg.sceneIndex,
-      totalScenes: sceneCount,
-      explainer: seg.explainer,
-      voiceover: seg.voiceover,
-      style: seg.mode === 'scene' ? spec.style : undefined,
-      mode: seg.mode,
-      onScreen: seg.onScreen
-    })
-    for (const line of gen.validationLog) cb.onLog(info(`${seg.label}: ${line}`))
-    if (gen.validationStatus === 'failed-after-retries') {
-      cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: animation-coverage validation failed after ${gen.attempts} attempts — proceeding with best output.` })
+    let firstHtml: string | null = null
+    if (templateHtml) {
+      cb.onLog(info(`${seg.label}: adapting the proven intro card as a template (changing only the text) instead of designing from scratch`))
+      const adapted = await adaptTemplateHtml({
+        apiKey: settings.anthropic_api_key,
+        model: settings.claude_model,
+        templateHtml,
+        explainer: seg.explainer,
+        ratio: spec.ratio,
+        durationSeconds: audioDuration
+      })
+      for (const line of adapted.log) cb.onLog(info(`${seg.label}: ${line}`))
+      if (adapted.applied > 0) firstHtml = adapted.html
+      else cb.onLog(info(`${seg.label}: template adaptation produced no edits — generating fresh instead.`))
     }
-    if (gen.safeZone === 'force-fitted') {
-      cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: content exceeded the 9:16 safe zone — applied a deterministic geometric fit.` })
+    if (!firstHtml) {
+      cb.onLog(info(`${seg.label}: asking Claude (${settings.claude_model}) for HTML`))
+      const gen = await generateSceneHtml({
+        apiKey: settings.anthropic_api_key,
+        model: settings.claude_model,
+        ratio: spec.ratio,
+        durationSeconds: audioDuration,
+        sceneIndex: seg.sceneIndex,
+        totalScenes: sceneCount,
+        explainer: seg.explainer,
+        voiceover: seg.voiceover,
+        style: seg.mode === 'scene' ? spec.style : undefined,
+        mode: seg.mode,
+        onScreen: seg.onScreen
+      })
+      for (const line of gen.validationLog) cb.onLog(info(`${seg.label}: ${line}`))
+      if (gen.validationStatus === 'failed-after-retries') {
+        cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: animation-coverage validation failed after ${gen.attempts} attempts — proceeding with best output.` })
+      }
+      if (gen.safeZone === 'force-fitted') {
+        cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: content exceeded the 9:16 safe zone — applied a deterministic geometric fit.` })
+      }
+      if (gen.sanitized.length > 0) cb.onLog(info(`${seg.label}: sanitized ${gen.sanitized.length} looping construct(s).`))
+      firstHtml = gen.html
     }
-    if (gen.sanitized.length > 0) cb.onLog(info(`${seg.label}: sanitized ${gen.sanitized.length} looping construct(s).`))
 
     const sceneFeatures = computeSceneFeatures(spec.ratio, seg.explainer)
 
-    const first = await renderAndReview(gen.html, `${seg.label} attempt 1/${MAX_VISUAL_REVIEW_ATTEMPTS}`, 1)
-    let best = { html: gen.html, mp4: first.mp4, issues: first.issues }
+    const first = await renderAndReview(firstHtml, `${seg.label} attempt 1/${MAX_VISUAL_REVIEW_ATTEMPTS}`, 1)
+    let best = { html: firstHtml, mp4: first.mp4, issues: first.issues }
     let attempt = 1
     let noProgress = 0
     let templateTried = false
@@ -297,7 +327,7 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
       if (seg.saveTemplates && first.reviewed) {
         try {
           const total = saveTemplate(
-            { features: sceneFeatures, html: gen.html, videoName: spec.video_name, explainerPreview: seg.explainer },
+            { features: sceneFeatures, html: best.html, videoName: spec.video_name, explainerPreview: seg.explainer },
             Date.now()
           )
           cb.onLog(info(`${seg.label}: saved as a reusable template (${sceneFeatures.kind}, ${sceneFeatures.lineCount} line(s)); library now holds ${total}.`))
@@ -394,6 +424,34 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
       }
     }
 
+    // STATIC FALLBACK (intro/outro only). If the animated card still has issues
+    // after every attempt (e.g. it loops or drops lines), ship a guaranteed-clean
+    // STATIC card instead — the on-screen text held for the whole duration, which
+    // physically cannot loop. A calm static card always beats a broken animated one.
+    if ((seg.kind === 'intro' || seg.kind === 'outro') && best.issues.length > 0 && seg.onScreen) {
+      cb.onLog({
+        ts: Date.now(),
+        level: 'warn',
+        message: `${seg.label}: animated version still had issues after ${attempt} attempt(s) — falling back to a clean STATIC title card (no animation) so nothing loops or drops.`
+      })
+      try {
+        const staticHtml = await buildStaticIntroOutroCard(seg.onScreen, audioDuration)
+        await scaffoldProject(projectDir, staticHtml)
+        if (handle.cancelled) throw new Error('Cancelled')
+        const staticMp4 = path.join(segDir, 'render_static.mp4')
+        await renderHyperframes({
+          command: settings.hyperframes_command,
+          projectDir,
+          outputMp4: staticMp4,
+          onLog: (line) => cb.onLog(info(`hyperframes: ${line}`))
+        })
+        best = { html: staticHtml, mp4: staticMp4, issues: [] }
+        cb.onLog(info(`${seg.label}: static card rendered — all lines visible and held for the full duration.`))
+      } catch (err: any) {
+        cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: static fallback failed (${err.message}) — using the best animated version.` })
+      }
+    }
+
     if (best.issues.length > 0) {
       cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: shipping the best version (fewest issues) after ${attempt} attempt(s). Remaining issue(s):` })
       for (const issue of best.issues) cb.onLog({ ts: Date.now(), level: 'warn', message: `  • ${issue}` })
@@ -409,7 +467,7 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
     const totalSeconds = audioDuration + SCENE_TAIL_SECONDS
     cb.onLog(info(`✓ ${seg.label} saved (${totalSeconds.toFixed(2)}s, ${attempt} review attempt${attempt === 1 ? '' : 's'}) → ${finalMp4}`))
 
-    return { finalMp4, durationSeconds: totalSeconds, transitionOut: seg.transitionOut }
+    return { finalMp4, durationSeconds: totalSeconds, transitionOut: seg.transitionOut, html: best.html }
   }
 }
 

@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import fs from 'node:fs/promises'
 import type { AspectRatio, ScriptSpec } from '@shared/types'
 import { dimensionsForRatio } from './parser'
-import { zoneGuideForPrompt, zoneGuideForReviewer } from '@shared/zones'
+import { zoneGuideForPrompt, zoneGuideForReviewer, NINE_SIXTEEN } from '@shared/zones'
 import { measureSafeZone, fitHtmlToSafeZone, safeZoneFeedback, overlapFeedback, emptyShapeFeedback } from './safezone'
 import { injectShapeAssets, shapeGuideForPrompt } from './shapes'
 
@@ -366,6 +366,63 @@ Design it as described in the system prompt:
 - All text inside the safe area, no word broken across lines.
 
 Return ONLY the full HTML document, beginning with <!DOCTYPE html>.`
+}
+
+/**
+ * A deterministic, guaranteed-safe STATIC intro/outro card — no Claude, no
+ * animation. Every line is centered and visible for the whole duration, so it
+ * physically cannot loop or come up incomplete. Used as the fallback when the
+ * animated version can't be produced cleanly.
+ */
+function buildStaticCardHtmlRaw(onScreen: string, durationSeconds: number): string {
+  const m = NINE_SIXTEEN.margin
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const lines = onScreen
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  const items = lines.map((l) => `      <div class="line">${esc(l)}</div>`).join('\n')
+  const d = durationSeconds.toFixed(3)
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;padding:0}
+  #stage{position:relative;width:1080px;height:1920px;overflow:hidden;background:#F4EFE6;font-family:'Poppins',system-ui,sans-serif}
+  .safe{position:absolute;left:${m.left}px;right:${m.right}px;top:${m.top}px;bottom:${m.bottom}px;display:flex;flex-direction:column;align-items:center;justify-content:center;box-sizing:border-box;gap:26px}
+  .line{color:#1A1A1A;font-weight:800;font-size:66px;line-height:1.14;text-align:center;overflow-wrap:normal;word-break:keep-all;max-width:100%}
+  .line:first-child{color:#C2554B}
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="main" data-width="1080" data-height="1920" data-duration="${d}">
+  <div class="safe">
+${items}
+  </div>
+</div>
+</body>
+</html>`
+}
+
+/**
+ * Build the static card and run it through the deterministic safe-zone fit so it
+ * is guaranteed to sit inside the safe area even if a line is long. Never throws.
+ */
+export async function buildStaticIntroOutroCard(onScreen: string, durationSeconds: number): Promise<string> {
+  let html = buildStaticCardHtmlRaw(onScreen, durationSeconds)
+  try {
+    const m = await measureSafeZone(html, durationSeconds)
+    if (m.measured && !m.ok) {
+      const fit = fitHtmlToSafeZone(html, m)
+      if (fit.fitted) html = fit.html
+    }
+  } catch {
+    /* fit is best-effort; the raw card is already conservatively sized */
+  }
+  return html
 }
 
 function buildUserPrompt(args: SceneRenderArgs): string {
