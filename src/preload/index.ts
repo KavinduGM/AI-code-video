@@ -4,6 +4,7 @@ import type {
   AppSettings,
   DocumentEnqueueResult,
   Job,
+  MusicProfile,
   QueueEvent,
   VoiceProfile
 } from '../shared/types'
@@ -19,6 +20,12 @@ const api = {
     upsert: (p: VoiceProfile): Promise<VoiceProfile> =>
       ipcRenderer.invoke(IPC.PROFILES_UPSERT, p),
     remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.PROFILES_DELETE, id)
+  },
+  music: {
+    list: (): Promise<MusicProfile[]> => ipcRenderer.invoke(IPC.MUSIC_LIST),
+    upsert: (m: { id?: string; name: string; path: string }): Promise<MusicProfile> =>
+      ipcRenderer.invoke(IPC.MUSIC_UPSERT, m),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.MUSIC_DELETE, id)
   },
   jobs: {
     enqueue: (script_yaml: string, music_path?: string): Promise<Job> =>

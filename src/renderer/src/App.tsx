@@ -4,8 +4,9 @@ import QueuePage from './pages/QueuePage'
 import NewJobPage from './pages/NewJobPage'
 import SettingsPage from './pages/SettingsPage'
 import VoiceProfilesPage from './pages/VoiceProfilesPage'
+import MusicPage from './pages/MusicPage'
 
-type Tab = 'queue' | 'new' | 'profiles' | 'settings'
+type Tab = 'queue' | 'new' | 'profiles' | 'music' | 'settings'
 
 export default function App(): JSX.Element {
   const [tab, setTab] = useState<Tab>('queue')
@@ -68,6 +69,12 @@ export default function App(): JSX.Element {
           Voice profiles
         </button>
         <button
+          className={`nav-btn ${tab === 'music' ? 'active' : ''}`}
+          onClick={() => setTab('music')}
+        >
+          Background music
+        </button>
+        <button
           className={`nav-btn ${tab === 'settings' ? 'active' : ''}`}
           onClick={() => setTab('settings')}
         >
@@ -78,6 +85,7 @@ export default function App(): JSX.Element {
         {tab === 'queue' && <QueuePage jobs={jobs} />}
         {tab === 'new' && <NewJobPage onQueued={() => setTab('queue')} />}
         {tab === 'profiles' && <VoiceProfilesPage />}
+        {tab === 'music' && <MusicPage />}
         {tab === 'settings' && <SettingsPage />}
       </main>
     </div>

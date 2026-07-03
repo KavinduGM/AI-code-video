@@ -50,6 +50,7 @@ export interface ScriptSpec {
   output_folder: string
   voice_profile: string // display name of saved profile
   voice_speed?: number
+  background_music?: string // name of a saved music profile (intro/outro bed)
   style?: {
     description?: string
     colors?: string[]
@@ -66,6 +67,12 @@ export interface VoiceProfile {
   description: string
   voice_id: string // ElevenLabs voice ID
   default_speed: number // ElevenLabs supports 0.7–1.2 on Turbo v2
+}
+
+export interface MusicProfile {
+  id: string
+  name: string // referenced in a script via background_music
+  path: string // absolute path to the audio file
 }
 
 export interface AppSettings {
@@ -132,6 +139,10 @@ export const IPC = {
   PROFILES_LIST: 'profiles:list',
   PROFILES_UPSERT: 'profiles:upsert',
   PROFILES_DELETE: 'profiles:delete',
+  // music profiles
+  MUSIC_LIST: 'music:list',
+  MUSIC_UPSERT: 'music:upsert',
+  MUSIC_DELETE: 'music:delete',
   // queue / jobs
   JOB_ENQUEUE: 'job:enqueue',
   JOB_ENQUEUE_FILE: 'job:enqueue-file',

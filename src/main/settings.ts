@@ -1,7 +1,8 @@
 import Store from 'electron-store'
 import { app } from 'electron'
 import path from 'node:path'
-import type { AppSettings, VoiceProfile } from '@shared/types'
+import { randomUUID } from 'node:crypto'
+import type { AppSettings, VoiceProfile, MusicProfile } from '@shared/types'
 
 const DEFAULT_SETTINGS: AppSettings = {
   anthropic_api_key: '',
@@ -15,6 +16,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 interface SchemaShape {
   settings: AppSettings
   voiceProfiles: VoiceProfile[]
+  musicProfiles: MusicProfile[]
 }
 
 let store: Store<SchemaShape> | null = null
@@ -26,7 +28,8 @@ function getStore(): Store<SchemaShape> {
       cwd: app.getPath('userData'),
       defaults: {
         settings: { ...DEFAULT_SETTINGS, default_output_folder: app.getPath('desktop') },
-        voiceProfiles: []
+        voiceProfiles: [],
+        musicProfiles: []
       }
     })
   }
@@ -90,6 +93,33 @@ export function deleteProfile(id: string): void {
 
 export function findProfileByName(name: string): VoiceProfile | undefined {
   return listProfiles().find((p) => p.name.toLowerCase() === name.toLowerCase())
+}
+
+// ---- Named background-music profiles ----
+
+export function listMusic(): MusicProfile[] {
+  return (getStore().get('musicProfiles') as MusicProfile[]) ?? []
+}
+
+export function upsertMusic(profile: { id?: string; name: string; path: string }): MusicProfile {
+  const list = listMusic()
+  const item: MusicProfile = { id: profile.id || randomUUID(), name: profile.name.trim(), path: profile.path }
+  const idx = list.findIndex((m) => m.id === item.id)
+  if (idx >= 0) list[idx] = item
+  else list.push(item)
+  getStore().set('musicProfiles', list)
+  return item
+}
+
+export function deleteMusic(id: string): void {
+  getStore().set(
+    'musicProfiles',
+    listMusic().filter((m) => m.id !== id)
+  )
+}
+
+export function findMusicByName(name: string): MusicProfile | undefined {
+  return listMusic().find((m) => m.name.toLowerCase() === name.trim().toLowerCase())
 }
 
 export function getStoragePaths() {

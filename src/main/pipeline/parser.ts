@@ -23,6 +23,7 @@ const ALLOWED_TOP_LEVEL = new Set([
   'output_folder',
   'voice_profile',
   'voice_speed',
+  'background_music',
   'style',
   // Style fields are also accepted at the top level for ergonomics.
   'description',
@@ -85,6 +86,9 @@ export function parseScript(yaml: string): ScriptSpec {
   const voice_speed =
     r.voice_speed !== undefined ? requireNumber(r, 'voice_speed', 0.5, 2.0) : undefined
 
+  const background_music =
+    r.background_music !== undefined ? requireString(r, 'background_music') : undefined
+
   const style = parseStyle(r)
 
   const intro = parseIntroOutro(r.intro, 'intro')
@@ -102,6 +106,7 @@ export function parseScript(yaml: string): ScriptSpec {
     output_folder,
     voice_profile,
     voice_speed,
+    background_music,
     style,
     intro,
     outro,

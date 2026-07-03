@@ -16,6 +16,9 @@ import {
   listProfiles,
   upsertProfile,
   deleteProfile,
+  listMusic,
+  upsertMusic,
+  deleteMusic,
   getStoragePaths
 } from './settings'
 import { clearJobs, createJob, deleteJob, getJob, listJobs, resetJob, updateJob } from './db'
@@ -42,6 +45,14 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     return upsertProfile(profile)
   })
   ipcMain.handle(IPC.PROFILES_DELETE, (_e, id: string) => deleteProfile(id))
+
+  ipcMain.handle(IPC.MUSIC_LIST, () => listMusic())
+  ipcMain.handle(IPC.MUSIC_UPSERT, (_e, raw: { id?: string; name: string; path: string }) => {
+    if (!raw?.name?.trim()) throw new Error('Music name is required.')
+    if (!raw?.path?.trim()) throw new Error('Music file path is required.')
+    return upsertMusic({ id: raw.id, name: raw.name, path: raw.path })
+  })
+  ipcMain.handle(IPC.MUSIC_DELETE, (_e, id: string) => deleteMusic(id))
 
   ipcMain.handle(IPC.JOB_ENQUEUE, (_e, args: { script_yaml: string; music_path?: string }) => {
     const spec = parseScript(args.script_yaml)

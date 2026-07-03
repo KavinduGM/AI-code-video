@@ -22,7 +22,7 @@ import {
   ensureDir
 } from './ffmpeg'
 import { analyzeMotion } from './motion'
-import { getSettings, findProfileByName, getStoragePaths } from '../settings'
+import { getSettings, findProfileByName, findMusicByName, getStoragePaths } from '../settings'
 
 const MAX_VISUAL_REVIEW_ATTEMPTS = 10
 // Stop early if repairs stop reducing the issue count for this many consecutive
@@ -81,8 +81,21 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
   const jobWorkDir = path.join(workspace, job.id)
   ensureDir(jobWorkDir)
 
-  // Resolve background music: per-job override wins over the global default.
-  const musicPath = job.music_path || settings.background_music_path || ''
+  // Resolve background music, in priority order:
+  //   1. the script's named music profile (background_music: "Name")
+  //   2. a per-job override
+  //   3. the global default in Settings
+  let musicPath = ''
+  if (spec.background_music) {
+    const mp = findMusicByName(spec.background_music)
+    if (mp) {
+      musicPath = mp.path
+      cb.onLog(info(`Background music: "${spec.background_music}" → ${mp.path}`))
+    } else {
+      cb.onLog({ ts: Date.now(), level: 'warn', message: `Music profile "${spec.background_music}" not found — add it on the Music tab. Falling back to the default.` })
+    }
+  }
+  if (!musicPath) musicPath = job.music_path || settings.background_music_path || ''
   const musicExists = !!musicPath && fs.existsSync(musicPath)
   if ((spec.intro || spec.outro) && musicPath && !musicExists) {
     cb.onLog({ ts: Date.now(), level: 'warn', message: `Background music file not found: ${musicPath} — intro/outro will play without music.` })
