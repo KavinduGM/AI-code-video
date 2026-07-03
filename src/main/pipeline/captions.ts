@@ -119,7 +119,7 @@ const NORMAL = '&HFFFFFF&' // white
  * OFFSET within the final concatenated video.
  */
 export function buildAss(segments: { units: CaptionUnit[]; offset: number }[]): string {
-  const events: string[] = []
+  const raw: { start: number; end: number; text: string }[] = []
   for (const seg of segments) {
     const chunks = groupIntoChunks(seg.units)
     for (const chunk of chunks) {
@@ -135,10 +135,25 @@ export function buildAss(segments: { units: CaptionUnit[]; offset: number }[]): 
             i === k ? `{\\1c${HIGHLIGHT}}${escAss(c.text)}{\\1c${NORMAL}}` : escAss(c.text)
           )
           .join(' ')
-        events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Caption,,0,0,0,,${text}`)
+        raw.push({ start, end, text })
       }
     }
   }
+
+  // NO TWO EVENTS MAY OVERLAP IN TIME. When a chunk's trailing hold overlaps the
+  // next chunk's first event, libass collision handling stacks the new caption
+  // ABOVE the still-visible one — captions appear to jump up and down. Clamping
+  // every event to end exactly when the next begins keeps a single caption on
+  // screen at a time, so every chunk pops in at the SAME anchored position.
+  raw.sort((a, b) => a.start - b.start)
+  for (let i = 0; i < raw.length - 1; i++) {
+    if (raw[i].end > raw[i + 1].start) {
+      raw[i].end = Math.max(raw[i].start + 0.05, raw[i + 1].start)
+    }
+  }
+  const events = raw.map(
+    (e) => `Dialogue: 0,${assTime(e.start)},${assTime(e.end)},Caption,,0,0,0,,${e.text}`
+  )
 
   return `[Script Info]
 ScriptType: v4.00+
