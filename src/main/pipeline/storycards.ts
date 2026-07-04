@@ -56,16 +56,65 @@ export interface StorySet {
   pill: PillStyle
   /** underline treatment on the intro scene-2 text (set 5 storyboard) */
   underline2?: boolean
+  /** code-drawn fallback heroes, used for any slot whose PNG is not uploaded */
   assets: { intro1: AssetId; intro2: AssetId; outro1: AssetId }
   /** optional small coded hero above the subscribe pill (set 1's jeep) */
   outro2Asset?: AssetId
-  /** 'svg' (default) = code-drawn heroes; 'image' = artist PNGs fill the slots */
+  /**
+   * ALL sets are PNG-first: the artist's storyboard PNGs in
+   * template-assets/set-<id>/ fill the hero slots. assetMode 'image' is the
+   * norm; sets whose code-drawn art is a usable stand-in set svgFallbackOk so
+   * they keep working (and stay in auto-pick) before their PNGs are uploaded.
+   */
   assetMode?: 'svg' | 'image'
-  /** for image sets: the PNG filename expected in each hero slot */
-  imageSlots?: { intro1: string; intro2: string; outro1: string }
+  svgFallbackOk?: boolean
+  /** the PNG filename expected in each hero slot (outro2 is always optional) */
+  imageSlots?: { intro1: string; intro2: string; outro1: string; outro2: string }
+  /**
+   * Per-card layout overrides, tuned from the storyboard. Anything not
+   * specified falls back to the generic layout (text top, hero large and
+   * bottom-centered).
+   */
+  layouts?: Partial<Record<CardKey, CardLayout>>
 }
 
-const STD_SLOTS = { intro1: 'intro1_hero.png', intro2: 'intro2_hero.png', outro1: 'outro1_hero.png' }
+export type CardKey = 'intro1' | 'intro2' | 'outro1' | 'outro2'
+
+export interface HeroLayout {
+  /** slot box size in px */
+  w: number
+  h: number
+  /** horizontal anchor: centered, or bleeding off the left/right frame edge */
+  x: 'center' | 'left-bleed' | 'right-bleed'
+  /** how far past the frame edge a bleed extends (px) */
+  bleed?: number
+  /** vertical anchor (px relative to the safe area) — set exactly one */
+  bottom?: number
+  top?: number
+}
+
+export interface CardLayout {
+  /** pushes the text block down from the safe top (px) */
+  padTop: number
+  /** per-card text alignment override (default: the set's align) */
+  textAlign?: 'left' | 'right' | 'center'
+  hero?: HeroLayout
+}
+
+/** Generic storyboard layout: text at the top, hero large and bottom-center. */
+export const DEFAULT_CARD_LAYOUTS: Record<CardKey, CardLayout> = {
+  intro1: { padTop: 0, hero: { w: 780, h: 720, x: 'center', bottom: -160 } },
+  intro2: { padTop: 40, hero: { w: 660, h: 620, x: 'center', bottom: -60 } },
+  outro1: { padTop: 0, hero: { w: 680, h: 640, x: 'center', bottom: 120 } },
+  outro2: { padTop: 40 }
+}
+
+const STD_SLOTS = {
+  intro1: 'intro1_hero.png',
+  intro2: 'intro2_hero.png',
+  outro1: 'outro1_hero.png',
+  outro2: 'outro2_hero.png'
+}
 
 export const STORY_SETS: StorySet[] = [
   {
@@ -84,7 +133,10 @@ export const STORY_SETS: StorySet[] = [
     arrowColor: '#1F3A5F',
     pill: 'light',
     assets: { intro1: 'house', intro2: 'key', outro1: 'bulb' },
-    outro2Asset: 'jeep'
+    outro2Asset: 'jeep',
+    assetMode: 'image',
+    svgFallbackOk: true,
+    imageSlots: STD_SLOTS
   },
   {
     id: 2,
@@ -101,7 +153,10 @@ export const STORY_SETS: StorySet[] = [
     arrowStyle: 'thin',
     arrowColor: '#101010',
     pill: 'light',
-    assets: { intro1: 'facade', intro2: 'docpencil', outro1: 'checkcircle' }
+    assets: { intro1: 'facade', intro2: 'docpencil', outro1: 'checkcircle' },
+    assetMode: 'image',
+    svgFallbackOk: true,
+    imageSlots: STD_SLOTS
   },
   {
     id: 3,
@@ -120,7 +175,17 @@ export const STORY_SETS: StorySet[] = [
     pill: 'light',
     assets: { intro1: 'house', intro2: 'key', outro1: 'bulb' }, // svg fallback only
     assetMode: 'image',
-    imageSlots: STD_SLOTS
+    imageSlots: STD_SLOTS,
+    // Tuned 1:1 from the Set-3 storyboard: hand+keys bleeds off the LEFT edge
+    // under an upper-left text block; hand+house bleeds off the TOP-RIGHT with
+    // the text lower-right; the scale sits bottom-center under a top heading;
+    // the CTA card is centered with the curved arrow.
+    layouts: {
+      intro1: { padTop: 430, hero: { w: 860, h: 520, x: 'left-bleed', bleed: 150, bottom: 0 } },
+      intro2: { padTop: 950, textAlign: 'right', hero: { w: 840, h: 540, x: 'right-bleed', bleed: 150, top: -120 } },
+      outro1: { padTop: 20, hero: { w: 620, h: 750, x: 'center', bottom: -20 } },
+      outro2: { padTop: 430, textAlign: 'center' }
+    }
   },
   {
     id: 4,
@@ -137,7 +202,10 @@ export const STORY_SETS: StorySet[] = [
     arrowStyle: 'curved',
     arrowColor: '#6E6E6E',
     pill: 'subscribed',
-    assets: { intro1: 'house', intro2: 'branch', outro1: 'roof' }
+    assets: { intro1: 'house', intro2: 'branch', outro1: 'roof' },
+    assetMode: 'image',
+    svgFallbackOk: true,
+    imageSlots: STD_SLOTS
   },
   {
     id: 5,
@@ -155,7 +223,10 @@ export const STORY_SETS: StorySet[] = [
     arrowColor: '#101010',
     pill: 'outline',
     underline2: true,
-    assets: { intro1: 'magnifier', intro2: 'handshake', outro1: 'clipboard' }
+    assets: { intro1: 'magnifier', intro2: 'handshake', outro1: 'clipboard' },
+    assetMode: 'image',
+    svgFallbackOk: true,
+    imageSlots: STD_SLOTS
   },
   {
     id: 6,
@@ -172,7 +243,10 @@ export const STORY_SETS: StorySet[] = [
     arrowStyle: 'block',
     arrowColor: '#A9C6E8',
     pill: 'subscribed',
-    assets: { intro1: 'tower', intro2: 'skyscraper', outro1: 'house' }
+    assets: { intro1: 'tower', intro2: 'skyscraper', outro1: 'house' },
+    assetMode: 'image',
+    svgFallbackOk: true,
+    imageSlots: STD_SLOTS
   },
   {
     id: 7,
@@ -270,7 +344,7 @@ export function pickStorySet(seed: string, override?: number, availableImageSets
   if (override && override >= 1) {
     return STORY_SETS[(override - 1) % STORY_SETS.length]
   }
-  const pool = STORY_SETS.filter((s) => s.assetMode !== 'image' || availableImageSets.includes(s.id))
+  const pool = STORY_SETS.filter((s) => s.svgFallbackOk || availableImageSets.includes(s.id))
   return pool[hash(`story:${seed}`) % pool.length]
 }
 
@@ -409,7 +483,7 @@ function assetSvg(id: AssetId, px: number): string {
 </svg>`
     case 'checkcircle':
       return `<svg viewBox="0 0 240 240" width="${Math.round(W * 0.82)}" aria-hidden="true">
-  <ellipse cx="120" cy="122" rx="96" ry="92" fill="none" stroke="#101010" stroke-width="12" transform="rotate(-6 120 122)" stroke-linecap="round" stroke-dasharray="560 40"/>
+  <ellipse cx="120" cy="122" rx="96" ry="92" fill="none" stroke="#101010" stroke-width="12" transform="rotate(-6 120 122)" stroke-linecap="round"/>
   <path d="M72 126 l34 36 62 -84" stroke="#3FA35C" stroke-width="20" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`
     case 'branch':
@@ -455,14 +529,14 @@ function arrowSvgStyled(style: ArrowStyle, color: string, px: number): string {
   const W = Math.round(px * 0.5)
   switch (style) {
     case 'block':
-      return `<svg viewBox="0 0 120 200" width="${W}" aria-hidden="true">
-  <path d="M60 8 L60 128" stroke="${color}" stroke-width="26" stroke-linecap="round" fill="none"/>
-  <polygon points="18,120 102,120 60,188" fill="${color}"/>
+      return `<svg viewBox="0 0 120 260" width="${W}" aria-hidden="true">
+  <path d="M60 8 L60 182" stroke="${color}" stroke-width="26" stroke-linecap="round" fill="none"/>
+  <polygon points="18,174 102,174 60,248" fill="${color}"/>
 </svg>`
     case 'thin':
-      return `<svg viewBox="0 0 120 200" width="${Math.round(W * 0.8)}" aria-hidden="true">
-  <path d="M60 8 L60 168" stroke="${color}" stroke-width="10" stroke-linecap="round" fill="none"/>
-  <path d="M24 136 L60 180 L96 136" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      return `<svg viewBox="0 0 100 340" width="${Math.round(W * 0.46)}" aria-hidden="true">
+  <path d="M50 6 L50 306" stroke="${color}" stroke-width="11" stroke-linecap="round" fill="none"/>
+  <path d="M14 262 L50 330 L86 262" stroke="${color}" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>`
     case 'curved':
       return `<svg viewBox="0 0 160 200" width="${Math.round(W * 1.1)}" aria-hidden="true">
@@ -502,12 +576,12 @@ export interface StoryCardSpec {
   durationSeconds: number
   set: StorySet
   /** for image sets: resolved hrefs per hero slot (e.g. "assets/intro1_hero.png") */
-  images?: Partial<Record<'intro1' | 'intro2' | 'outro1', string>>
+  images?: Partial<Record<'intro1' | 'intro2' | 'outro1' | 'outro2', string>>
 }
 
 function textSizeFor(text: string): number {
   const len = text.length
-  return len <= 20 ? 92 : len <= 32 ? 80 : len <= 48 ? 68 : 58
+  return len <= 20 ? 96 : len <= 32 ? 84 : len <= 48 ? 70 : 60
 }
 
 function wordSpans(text: string, from: number, to: number): { html: string; last: number } {
@@ -560,8 +634,6 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   const capsCss = set.caps ? 'text-transform:uppercase;' : ''
   const italicCss = set.italic ? 'font-style:italic;' : ''
   const spacedCss = set.spaced ? 'letter-spacing:3px;' : ''
-  const alignCss =
-    set.align === 'left' ? 'text-align:left;align-items:flex-start;' : set.align === 'right' ? 'text-align:right;align-items:flex-end;' : 'text-align:center;align-items:center;'
   const badgeSpacedCss = set.badge.spaced ? 'letter-spacing:4px;text-transform:uppercase;' : 'letter-spacing:2px;'
   const underline2Css = set.underline2
     ? '.sc2 .txt{text-decoration:underline;text-decoration-thickness:6px;text-underline-offset:12px}'
@@ -572,26 +644,58 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
       ? `<div class="badge" style="animation-delay:${badgeDelay.toFixed(2)}s">${esc(spec.badge)}</div>`
       : ''
 
-  // Hero content per slot: an uploaded PNG (image sets) or the code-drawn SVG.
-  const heroFor = (slot: 'intro1' | 'intro2' | 'outro1'): string => {
+  // Per-card layouts: the set's storyboard-tuned overrides on top of the
+  // generic defaults. Heroes use the uploaded PNG when present, else the
+  // code-drawn fallback, placed exactly where the layout anchors them —
+  // including bleeds off the frame edges (#stage clips them).
+  const layoutFor = (card: CardKey): CardLayout => set.layouts?.[card] ?? DEFAULT_CARD_LAYOUTS[card]
+  const heroFor = (slot: 'intro1' | 'intro2' | 'outro1', box: HeroLayout): string => {
     const href = spec.images?.[slot]
-    if (set.assetMode === 'image' && href) {
-      return `<div class="imgslot"><img src="${href}" alt=""/></div>`
-    }
-    return assetSvg(set.assets[slot], 520)
+    return href
+      ? `<div class="imgslot" style="width:${box.w}px;height:${box.h}px"><img src="${href}" alt=""/></div>`
+      : assetSvg(set.assets[slot], Math.round(Math.min(box.w, box.h) * 0.95))
+  }
+  const heroAbs = (slot: 'intro1' | 'intro2' | 'outro1', delay: number): string => {
+    const box = layoutFor(slot).hero
+    if (!box) return ''
+    const xCss =
+      box.x === 'left-bleed'
+        ? `left:${-(box.bleed ?? 120)}px`
+        : box.x === 'right-bleed'
+          ? `right:${-(box.bleed ?? 120)}px`
+          : 'left:50%;transform:translateX(-50%)'
+    const yCss = box.top !== undefined ? `top:${box.top}px` : `bottom:${box.bottom ?? 0}px`
+    return `<div class="heroA" style="${xCss};${yCss}"><div class="pop" style="animation-delay:${delay.toFixed(2)}s"><div class="float" style="animation-delay:${(delay + 0.8).toFixed(2)}s">${heroFor(slot, box)}</div></div></div>`
   }
 
-  const hero1 = heroFor(spec.kind === 'intro' ? 'intro1' : 'outro1')
-  const hero2Html =
-    spec.kind === 'intro'
-      ? `<div class="hero pop" style="animation-delay:${hero2Delay.toFixed(2)}s"><div class="float" style="animation-delay:${(hero2Delay + 0.8).toFixed(2)}s">${heroFor('intro2')}</div></div>`
-      : ''
+  const hero1Abs = heroAbs(spec.kind === 'intro' ? 'intro1' : 'outro1', hero1Delay)
+  const hero2Html = spec.kind === 'intro' ? heroAbs('intro2', hero2Delay) : ''
 
-  // Outro scene 2: optional small coded hero (set 1's jeep) + pill + arrow.
-  const ctaImgHtml =
-    spec.subscribe && set.outro2Asset && set.assetMode !== 'image'
-      ? `<div class="cta-img pop" style="animation-delay:${ctaImgDelay.toFixed(2)}s">${assetSvg(set.outro2Asset, 380)}</div>`
+  // Scene wrapper styles: per-card top padding + text alignment.
+  const card1: CardKey = spec.kind === 'intro' ? 'intro1' : 'outro1'
+  const card2: CardKey = spec.kind === 'intro' ? 'intro2' : 'outro2'
+  const sceneStyle = (card: CardKey): string => {
+    const l = layoutFor(card)
+    const a = l.textAlign ?? set.align
+    const alignCssCard =
+      a === 'left'
+        ? 'text-align:left;align-items:flex-start;'
+        : a === 'right'
+          ? 'text-align:right;align-items:flex-end;'
+          : 'text-align:center;align-items:center;'
+    return `padding-top:${l.padTop}px;${alignCssCard}`
+  }
+
+  // Outro scene 2: optional small hero above the pill (set 1's jeep) — the
+  // uploaded outro2 PNG when present, else the coded asset if the set has one.
+  const ctaImgInner = spec.images?.outro2
+    ? `<div class="imgslot" style="width:440px;height:320px"><img src="${spec.images.outro2}" alt=""/></div>`
+    : set.outro2Asset
+      ? assetSvg(set.outro2Asset, 380)
       : ''
+  const ctaImgHtml = spec.subscribe && ctaImgInner
+    ? `<div class="cta-img pop" style="animation-delay:${ctaImgDelay.toFixed(2)}s">${ctaImgInner}</div>`
+    : ''
   const ctaHtml = spec.subscribe
     ? `${ctaImgHtml}
       <div class="cta-pop" style="animation-delay:${pillDelay.toFixed(2)}s">${pillHtml(set, pulseDelay)}</div>
@@ -615,17 +719,18 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   html,body{margin:0;padding:0}
   #stage{position:relative;width:1080px;height:1920px;overflow:hidden;background:${set.bg};font-family:'${set.font}',system-ui,sans-serif}
   .safe{position:absolute;left:${m.left}px;right:${m.right}px;top:${m.top}px;bottom:${m.bottom}px;box-sizing:border-box}
-  .scene{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-start;gap:44px;${alignCss}}
+  .scene{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-start;gap:44px;box-sizing:border-box}
   .sc1{animation:scOut .35s ease-in both;animation-delay:${exitDelay.toFixed(2)}s;animation-iteration-count:1}
   .sc2{opacity:0;animation:scIn .35s ease-out both;animation-delay:${tSplit.toFixed(2)}s;animation-iteration-count:1}
   .badge{display:inline-block;background:${set.badge.bg};color:${set.badge.ink};font-weight:800;font-size:34px;${badgeSpacedCss}
-         padding:12px 28px;border-radius:14px;margin-top:26px;opacity:0;animation:drop .45s cubic-bezier(.2,.8,.3,1.15) both;animation-iteration-count:1}
+         padding:12px 28px;border-radius:14px;margin-top:26px;align-self:flex-start;opacity:0;animation:drop .45s cubic-bezier(.2,.8,.3,1.15) both;animation-iteration-count:1}
   .txt{color:${set.ink};font-weight:900;${capsCss}${italicCss}${spacedCss}line-height:1.16;max-width:100%;
        overflow-wrap:normal;word-break:keep-all;margin-top:18px}
   ${underline2Css}
   .w{display:inline-block;opacity:0;animation:wIn .38s cubic-bezier(.2,.7,.3,1) both;animation-iteration-count:1}
-  .hero{margin-top:auto;align-self:center;opacity:0}
-  .imgslot{width:600px;height:540px;display:flex;align-items:center;justify-content:center}
+  .heroA{position:absolute;left:50%;transform:translateX(-50%)}
+  .heroA .pop{opacity:0}
+  .imgslot{display:flex;align-items:center;justify-content:center}
   .imgslot img{max-width:100%;max-height:100%;display:block}
   .pop{animation:pop .55s cubic-bezier(.2,.85,.3,1.25) both;animation-iteration-count:1}
   .float{animation:float 3.2s ease-in-out infinite}
@@ -655,12 +760,12 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
 <body>
 <div id="stage" data-composition-id="main" data-width="1080" data-height="1920" data-duration="${D.toFixed(3)}">
   <div class="safe">
-    <div class="scene sc1">
+    <div class="scene sc1" style="${sceneStyle(card1)}">
       ${badgeHtml}
       <div class="txt" style="font-size:${textSizeFor(spec.scene1)}px">${s1.html}</div>
-      <div class="hero pop" style="animation-delay:${hero1Delay.toFixed(2)}s"><div class="float" style="animation-delay:${(hero1Delay + 0.8).toFixed(2)}s">${hero1}</div></div>
+      ${hero1Abs}
     </div>
-    <div class="scene sc2">
+    <div class="scene sc2" style="${sceneStyle(card2)}">
       <div class="txt" style="font-size:${textSizeFor(spec.scene2)}px;margin-top:60px">${s2.html}</div>
       ${spec.kind === 'intro' ? hero2Html : ctaHtml}
     </div>

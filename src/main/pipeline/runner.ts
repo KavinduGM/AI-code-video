@@ -397,26 +397,39 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
         cb.onProgress(baseProgress + segShare * 0.35, `${seg.label}: composing story template card`)
         cb.onLog(info(`${seg.label}: composing 2-scene story template card (set ${storySet.id} "${storySet.name}"${spec.channel ? `, badge "${spec.channel}"` : ''}${seg.subscribe ? ', subscribe CTA' : ''}) — deterministic, review skipped`))
 
-        // Image sets: resolve the uploaded PNGs from the template-assets folder,
-        // fail loudly (with the exact expected paths) when they're missing, and
-        // copy them into the Hyperframes project's assets/ dir after scaffolding.
-        let images: Partial<Record<'intro1' | 'intro2' | 'outro1', string>> | undefined
+        // ALL sets are PNG-first: use each uploaded slot PNG when present. A
+        // missing REQUIRED slot falls back to the set's code-drawn art when
+        // that's a usable stand-in (svgFallbackOk), otherwise fails loudly
+        // with the exact expected path. The outro2 slot is always optional.
+        let images: Partial<Record<'intro1' | 'intro2' | 'outro1' | 'outro2', string>> | undefined
         const assetCopies: { src: string; name: string }[] = []
         if (storySet.assetMode === 'image') {
           const assetDir = path.join(getStoragePaths().userData, 'template-assets', `set-${storySet.id}`)
           const slots = storySet.imageSlots!
-          const needed: ('intro1' | 'intro2' | 'outro1')[] = seg.mode === 'intro' ? ['intro1', 'intro2'] : ['outro1']
+          const needed: ('intro1' | 'intro2' | 'outro1' | 'outro2')[] =
+            seg.mode === 'intro' ? ['intro1', 'intro2'] : ['outro1', 'outro2']
           images = {}
+          const fallbacks: string[] = []
           for (const slot of needed) {
             const file = slots[slot]
             const full = path.join(assetDir, file)
-            if (!fs.existsSync(full)) {
+            if (fs.existsSync(full)) {
+              images[slot] = `assets/${file}`
+              assetCopies.push({ src: full, name: file })
+            } else if (slot === 'outro2') {
+              continue // always optional
+            } else if (storySet.svgFallbackOk) {
+              fallbacks.push(slot)
+            } else {
               throw new Error(`template image missing: ${full} — add the PNG there (transparent background) and re-run`)
             }
-            images[slot] = `assets/${file}`
-            assetCopies.push({ src: full, name: file })
           }
-          cb.onLog(info(`${seg.label}: using uploaded template images from ${assetDir} (${assetCopies.map((a) => a.name).join(', ')})`))
+          if (assetCopies.length > 0) {
+            cb.onLog(info(`${seg.label}: using uploaded template images from ${assetDir} (${assetCopies.map((a) => a.name).join(', ')})`))
+          }
+          if (fallbacks.length > 0) {
+            cb.onLog(info(`${seg.label}: no PNG for slot(s) ${fallbacks.join(', ')} — using built-in graphics (drop the PNGs into ${assetDir} to upgrade)`))
+          }
         }
 
         const html = await buildStoryIntroOutroCard({

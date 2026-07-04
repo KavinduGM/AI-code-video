@@ -423,9 +423,14 @@ export async function buildStoryIntroOutroCard(args: {
   subscribe?: boolean
   durationSeconds: number
   set: StorySet
-  images?: Partial<Record<'intro1' | 'intro2' | 'outro1', string>>
+  images?: Partial<Record<'intro1' | 'intro2' | 'outro1' | 'outro2', string>>
 }): Promise<string> {
-  let html = buildStoryCardHtml({
+  // NO safe-zone fit here: story-card heroes INTENTIONALLY bleed off the
+  // frame edges and into the bottom margin (that's the storyboard design),
+  // which the fitter reads as overflow — it would shrink and re-center the
+  // whole card. Text safety comes from the conservative size tiers and the
+  // per-card layout paddings instead.
+  return buildStoryCardHtml({
     kind: args.kind,
     scene1: args.scene1,
     scene2: args.scene2,
@@ -435,16 +440,6 @@ export async function buildStoryIntroOutroCard(args: {
     set: args.set,
     images: args.images
   })
-  try {
-    const measurement = await measureSafeZone(html, args.durationSeconds)
-    if (measurement.measured && !measurement.ok) {
-      const fit = fitHtmlToSafeZone(html, measurement)
-      if (fit.fitted) html = fit.html
-    }
-  } catch {
-    /* best-effort — the raw card is conservatively sized */
-  }
-  return html
 }
 
 /**
