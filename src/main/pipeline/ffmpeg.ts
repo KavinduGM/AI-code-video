@@ -522,6 +522,15 @@ export interface InkSample {
   global: number[]
   /** per-frame, per-cell ink fractions (INK_GRID.cols × INK_GRID.rows, row-major) */
   cells: number[][]
+  /**
+   * FINAL-frame ink fraction inside each outer margin strip (with a small
+   * buffer past the safe boundary, so content legally AT the safe edge never
+   * trips it). Ink here = content cropped at the frame edge or invading the
+   * reserved margins — measured on real output pixels, immune to the
+   * DOM-measurement/font mismatches that can let crops slip past pre-render
+   * fitting.
+   */
+  edges: { left: number; right: number; top: number; bottom: number }
 }
 
 /**
@@ -591,7 +600,40 @@ export async function sampleInkFractions(
       global.push(ink / frameSize)
       cells.push(Array.from(cellInk, (n) => n / cellArea))
     }
-    return { global, cells }
+
+    // Ground-truth margin check on the FINAL frame. Strip bounds sit a small
+    // buffer OUTSIDE the safe area (safe x∈[60,1020] y∈[160,1540] at
+    // 1080×1920), so legal content touching the safe edge never registers:
+    //   left  < 50px   right > 1030px   top < 150px   bottom > 1550px
+    const edges = { left: 0, right: 0, top: 0, bottom: 0 }
+    if (frames > 0) {
+      const base = (frames - 1) * frameSize
+      const hist = new Uint32Array(32)
+      for (let p = 0; p < frameSize; p++) hist[buf[base + p] >> 3]++
+      let bgBin = 0
+      for (let b = 1; b < 32; b++) if (hist[b] > hist[bgBin]) bgBin = b
+      const bg = bgBin * 8 + 4
+      const leftMax = Math.floor((W * 50) / 1080) // x ≤ 2
+      const rightMin = Math.ceil((W * 1030) / 1080) // x ≥ 62
+      const topMax = Math.floor((H * 150) / 1920) // y ≤ 8
+      const bottomMin = Math.ceil((H * 1550) / 1920) // y ≥ 93
+      let l = 0, r = 0, t = 0, bo = 0
+      for (let y = 0; y < H; y++) {
+        const rowBase = base + y * W
+        for (let x = 0; x < W; x++) {
+          if (Math.abs(buf[rowBase + x] - bg) <= DIFF) continue
+          if (x <= leftMax) l++
+          if (x >= rightMin) r++
+          if (y <= topMax) t++
+          if (y >= bottomMin) bo++
+        }
+      }
+      edges.left = l / ((leftMax + 1) * H)
+      edges.right = r / ((W - rightMin) * H)
+      edges.top = t / ((topMax + 1) * W)
+      edges.bottom = bo / ((H - bottomMin) * W)
+    }
+    return { global, cells, edges }
   } finally {
     fs.promises.rm(rawPath, { force: true }).catch(() => {})
   }

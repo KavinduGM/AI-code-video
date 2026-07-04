@@ -202,6 +202,12 @@ EXPLAINER GRAPHICS (optional — use these to make scenes more creative & clear)
     - Text INSIDE a box/circle still uses .hf-box / .hf-circle (never an
       SVG-stroked rectangle around text). SVG strokes are fine for the marks
       and connectors above, which contain no text.
+    - STARS and other CLOSED-OUTLINE marks (star, diamond, badge, ring): use a
+      FILLED shape — an SVG <polygon points="..." fill="..."/> or a filled
+      glyph character (★ ✓ ✗) — NEVER a stroke-outline write-on. A stroked
+      star whose dash animation stops early is left with an OPEN SIDE, which
+      is a hard failure. Open paths (check, cross, arrow, underline) may use
+      strokes; closed outlines must be filled.
     - Every graphic stays inside the safe area and is fully visible & static at
       the end.`
 }

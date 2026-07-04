@@ -42,7 +42,10 @@ const LOOP_GUIDE =
   'state. Use animation-iteration-count:1 and animation-fill-mode:both for CSS, repeat:0 and ' +
   'yoyo:false for GSAP, and remove any pulsing, blinking, glowing, breathing, or looping effect ' +
   '(including any "soft pop" written as a repeating pulse). Never use setInterval for visible ' +
-  'motion. After each element reveals, it must remain fully visible and static until the scene ends.'
+  'motion. After each element reveals, it must remain fully visible and static until the scene ends. ' +
+  'CRITICAL: every @keyframes must END VISIBLE — its final (100%/to) frame must have opacity:1 and ' +
+  'full scale. An animation whose last frame is invisible (opacity:0, visibility:hidden, scale(0)) ' +
+  'plays once and leaves that element PERMANENTLY GONE, which reads as "line missing" at the end.'
 
 const STAGGER_GUIDE =
   'MOTION: all elements appear at once with no progressive reveal. FIX: stagger the reveals across ' +
@@ -50,6 +53,25 @@ const STAGGER_GUIDE =
   'heading first (~0.3s), then each following line about 0.6–1.0s after the previous one — each ' +
   'starting from opacity:0 and writing/fading in exactly once. Inside a box, reveal the box outline ' +
   'first, then its inner lines one after another (not all together).'
+
+const EDGE_NAMES: Record<string, string> = {
+  left: 'left margin (x < 60px)',
+  right: 'right margin (x > 1020px — text is being cut at the right frame edge)',
+  top: 'top margin (y < 160px)',
+  bottom: 'bottom margin (y > 1540px — this zone is RESERVED for captions)'
+}
+
+function edgeGuide(edges: string[]): string {
+  return (
+    `CROPPED / OUT OF SAFE ZONE: the RENDERED final frame has content pixels in the ` +
+    edges.map((e) => EDGE_NAMES[e] ?? e).join(' and the ') +
+    `. This is measured from the actual output pixels, so it is certain — the content does not fit. ` +
+    `FIX: shrink the font-size of the offending line(s) or shorten their text so EVERY element fits ` +
+    `inside x∈[60,1020] and y∈[160,1540]. A line with white-space:nowrap must be short enough to fit ` +
+    `the 960px safe width at its font size — otherwise reduce its size or split it across two lines ` +
+    `at a word boundary.`
+  )
+}
 
 /** True when a review issue came from the loop/flicker detector. */
 export function isLoopIssue(issue: string): boolean {
@@ -61,7 +83,11 @@ export function isLoopIssue(issue: string): boolean {
  * a normal write-on (ink climbs, then holds) passes, and only genuine looping or
  * instant-full compositions are flagged.
  */
-export function analyzeMotion(sample: { global: number[]; cells?: number[][] }): MotionVerdict {
+export function analyzeMotion(sample: {
+  global: number[]
+  cells?: number[][]
+  edges?: { left: number; right: number; top: number; bottom: number }
+}): MotionVerdict {
   const inks = sample.global
   const issues: string[] = []
   const max = inks.length ? Math.max(...inks) : 0
@@ -128,6 +154,16 @@ export function analyzeMotion(sample: { global: number[]; cells?: number[][] }):
     issues.push(LOOP_GUIDE + where)
   }
   if (allAtOnce) issues.push(STAGGER_GUIDE)
+
+  // GROUND-TRUTH margin check: ink in the outer margins of the rendered final
+  // frame = cropped or out-of-safe-zone content. Catches the crops that slip
+  // past pre-render DOM fitting when measurement and render disagree on font
+  // metrics. NOT a loop issue — never triggers the static fallback.
+  const EDGE_THRESHOLD = 0.01
+  if (sample.edges) {
+    const bad = (['left', 'right', 'top', 'bottom'] as const).filter((k) => sample.edges![k] > EDGE_THRESHOLD)
+    if (bad.length > 0) issues.push(edgeGuide(bad))
+  }
 
   return { loop, allAtOnce, blank: false, inks, loopRegions, issues }
 }

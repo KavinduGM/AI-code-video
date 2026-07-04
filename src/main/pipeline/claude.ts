@@ -495,6 +495,48 @@ function hexLuma(hex: string): number | null {
 }
 
 /**
+ * The DISPLAY lines of a scene: quoted strings that stand alone on their own
+ * line in the explainer (the script format puts every on-screen line on its
+ * own indented line). Inline emphasis quotes ("with the word \"inside\" in
+ * cyan") are deliberately NOT matched — they are styling notes, not lines.
+ */
+export function extractDisplayLines(explainer: string): string[] {
+  return Array.from(explainer.matchAll(/^\s*"([^"\n]{2,80})"\s*$/gm))
+    .map((m) => m[1].trim())
+    .filter(Boolean)
+}
+
+function normalizeForCoverage(s: string): string {
+  return s
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .toLowerCase()
+    .replace(/[\s ]+/g, '')
+}
+
+/**
+ * Deterministic TEXT-COVERAGE check: which of the explainer's display lines
+ * are missing from the HTML entirely? Whitespace-insensitive and tag-blind, so
+ * letter-by-letter span markup still matches. A line missing here was never
+ * authored — no animation fix can reveal it.
+ */
+export function missingDisplayLines(explainer: string, html: string): string[] {
+  const lines = extractDisplayLines(explainer)
+  if (lines.length === 0) return []
+  const hay = normalizeForCoverage(html)
+  return lines.filter((l) => !hay.includes(normalizeForCoverage(l)))
+}
+
+/**
  * A deterministic, guaranteed-safe STATIC SCENE card — the last resort when the
  * animated scene still LOOPS after every repair attempt. It extracts the quoted
  * on-screen lines from the explainer and renders them stacked and centered in
@@ -507,10 +549,7 @@ export async function buildStaticSceneCard(
   style: ScriptSpec['style'] | undefined,
   durationSeconds: number
 ): Promise<string | null> {
-  const lines = Array.from(explainer.matchAll(/"([^"\n]{2,80})"/g))
-    .map((m) => m[1].trim())
-    .filter(Boolean)
-    .slice(0, 8)
+  const lines = extractDisplayLines(explainer).slice(0, 8)
   if (lines.length === 0) return null
 
   const colors = (style?.colors ?? []).filter((c) => hexLuma(c) !== null)
@@ -1012,6 +1051,27 @@ export async function generateSceneHtml(args: SceneRenderArgs): Promise<SceneHtm
       continue
     }
 
+    // -------- Deterministic TEXT-COVERAGE validation (scenes only) --------
+    // Every display line of the explainer must exist in the HTML. A missing
+    // line was never authored — it can't be fixed by animation repairs, so
+    // catch it BEFORE any render is spent.
+    if (args.mode !== 'intro' && args.mode !== 'outro') {
+      const missing = missingDisplayLines(args.explainer, cleanHtml)
+      if (missing.length > 0 && attempt < MAX_ATTEMPTS) {
+        lastReason =
+          `These required on-screen lines are MISSING from the HTML entirely: ` +
+          missing.map((l) => `"${l}"`).join(', ') +
+          `. Build EVERY quoted display line from the explainer — none may be omitted, ` +
+          `each in its own band with its own reveal.`
+        lastSanitized = sanitized
+        lastHtml = cleanHtml
+        log.push(`attempt ${attempt}/${MAX_ATTEMPTS}: FAILED text-coverage (${missing.length} display line(s) missing) — regenerating with exact feedback`)
+        continue
+      } else if (missing.length > 0) {
+        log.push(`attempt ${attempt}/${MAX_ATTEMPTS}: WARNING — ${missing.length} display line(s) still missing after ${MAX_ATTEMPTS} attempts; shipping best effort`)
+      }
+    }
+
     const validation = validateAnimationCoverage(cleanHtml, args.durationSeconds)
 
     lastSanitized = sanitized
@@ -1260,8 +1320,14 @@ export async function repairSceneHtml(args: RepairArgs): Promise<RepairResult> {
   )
   for (const f of failed) log.push(`  - skipped: ${f}`)
 
-  // Re-assert the deterministic geometry guarantee on the patched HTML.
+  // Re-assert the deterministic guarantees on the patched HTML: a repair may
+  // itself introduce a loop or an ends-invisible keyframe — sanitize again.
   let outHtml = patched
+  if (applied > 0) {
+    const resan = sanitizeLoops(outHtml)
+    outHtml = resan.html
+    for (const n of resan.sanitized) log.push(`repair sanitize: ${n}`)
+  }
   let safeZone: RepairResult['safeZone'] = 'n/a'
   if (args.ratio === '9:16') {
     if (applied > 0) {
@@ -1786,6 +1852,52 @@ export function sanitizeLoops(html: string): { html: string; sanitized: string[]
   out = out.replace(/(animation\s*:\s*[^;{}\n]*?)\binfinite\b([^;{}\n]*)/gi, (_m, a, b) => {
     notes.push('css: animation shorthand had `infinite` → removed')
     return `${a}${b}`
+  })
+
+  // ---- CSS keyframes that END INVISIBLE ----------------------------------
+  // The rules above force every animation to a single pass — but a "pulse"
+  // keyframe whose FINAL frame is opacity:0 / visibility:hidden / scale(0)
+  // then plays once and leaves its element PERMANENTLY INVISIBLE. That is the
+  // "line appears then vanishes; whole steps missing at the final frame"
+  // disease. Rewrite the end state of every `to` / `…100%` keyframe to stay
+  // visible (nothing is ever allowed to exit anyway).
+  const fixEndState = (body: string): { body: string; changed: boolean } => {
+    let changed = false
+    let b = body.replace(/opacity\s*:\s*(0(?:\.\d+)?)(?![\d.])/gi, (mm, v) => {
+      if (parseFloat(v) <= 0.25) {
+        changed = true
+        return 'opacity: 1'
+      }
+      return mm
+    })
+    b = b.replace(/visibility\s*:\s*hidden/gi, () => {
+      changed = true
+      return 'visibility: visible'
+    })
+    b = b.replace(/\bscale\s*\(\s*(0(?:\.\d+)?)\s*\)/gi, (mm, v) => {
+      if (parseFloat(v) <= 0.25) {
+        changed = true
+        return 'scale(1)'
+      }
+      return mm
+    })
+    return { body: b, changed }
+  }
+  out = out.replace(/(\bto\s*\{)([^{}]*)(\})/g, (m, head, body, tail) => {
+    const fixed = fixEndState(body)
+    if (fixed.changed) {
+      notes.push('css: @keyframes `to` frame ended invisible → forced visible')
+      return `${head}${fixed.body}${tail}`
+    }
+    return m
+  })
+  out = out.replace(/((?:[\d.]+%\s*,\s*)*100(?:\.0+)?%\s*\{)([^{}]*)(\})/g, (m, head, body, tail) => {
+    const fixed = fixEndState(body)
+    if (fixed.changed) {
+      notes.push('css: @keyframes `100%` frame ended invisible → forced visible')
+      return `${head}${fixed.body}${tail}`
+    }
+    return m
   })
 
   // ---- GSAP: repeat: -1 / repeat: N>0 (object-literal form) --------------
