@@ -1,21 +1,42 @@
 // =====================================================================
 // STORY TEMPLATE CARDS — 2-scene intro / 2-scene outro (storyboard style)
 // =====================================================================
-// Replicates the editor-designed storyboards: each video's intro is TWO
-// scenes inside one segment (badge + hook + hero image, then statement +
-// hero image), and the outro is TWO scenes (takeaway + hero image, then
-// CTA + subscribe + arrow). A template SET defines the whole look — bg,
-// font treatment, badge style, alignment, hero assets — and one video
-// always uses one set for both intro and outro (hash-picked from the
-// video name, overridable via `template_set:` in the script).
+// The official State Exams Prep template pack: 10 sets translated from
+// the user's editor storyboards. Each set defines the whole look — bg,
+// font treatment, badge style, alignment, arrow style, subscribe-pill
+// style, hero assets — and one video always uses one set for both intro
+// and outro (hash-picked from the video name, overridable via
+// `template_set:` in the script).
 //
-// Hero images are code-drawn flat SVGs for now; artist-uploaded PNGs per
-// channel come later. Everything is composed deterministically: word
-// reveals, the scene swap, image pops and idle floats are all computed —
-// no AI, byte-identical output for the same input.
+// Sets 1/2/4/5/6 are fully code-drawn (flat SVG heroes). Sets 3/7/8/9/10
+// are REAL-IMAGE sets: the artist's transparent PNGs fill fixed hero
+// slots (template-assets/set-<id>/), and a set only enters the auto-pick
+// rotation once its PNGs are present. Everything is composed
+// deterministically — no AI, byte-identical output for the same input.
 // =====================================================================
 
 import { NINE_SIXTEEN } from '@shared/zones'
+
+export type AssetId =
+  | 'house'
+  | 'key'
+  | 'bulb'
+  | 'skyscraper'
+  | 'tower'
+  | 'books'
+  | 'clipboard'
+  | 'questions'
+  | 'jeep'
+  | 'facade'
+  | 'docpencil'
+  | 'checkcircle'
+  | 'branch'
+  | 'roof'
+  | 'magnifier'
+  | 'handshake'
+
+export type ArrowStyle = 'block' | 'thin' | 'curved'
+export type PillStyle = 'light' | 'dark' | 'outline' | 'subscribed'
 
 export interface StorySet {
   id: number
@@ -29,23 +50,22 @@ export interface StorySet {
   spaced: boolean
   /** text alignment for scene text blocks */
   align: 'left' | 'right' | 'center'
-  badge: { bg: string; ink: string }
+  badge: { bg: string; ink: string; spaced?: boolean }
+  arrowStyle: ArrowStyle
   arrowColor: string
+  pill: PillStyle
+  /** underline treatment on the intro scene-2 text (set 5 storyboard) */
+  underline2?: boolean
   assets: { intro1: AssetId; intro2: AssetId; outro1: AssetId }
+  /** optional small coded hero above the subscribe pill (set 1's jeep) */
+  outro2Asset?: AssetId
   /** 'svg' (default) = code-drawn heroes; 'image' = artist PNGs fill the slots */
   assetMode?: 'svg' | 'image'
   /** for image sets: the PNG filename expected in each hero slot */
   imageSlots?: { intro1: string; intro2: string; outro1: string }
 }
 
-export type AssetId =
-  | 'house'
-  | 'key'
-  | 'bulb'
-  | 'skyscraper'
-  | 'books'
-  | 'clipboard'
-  | 'questions'
+const STD_SLOTS = { intro1: 'intro1_hero.png', intro2: 'intro2_hero.png', outro1: 'outro1_hero.png' }
 
 export const STORY_SETS: StorySet[] = [
   {
@@ -60,11 +80,85 @@ export const STORY_SETS: StorySet[] = [
     spaced: false,
     align: 'right',
     badge: { bg: '#F2C9CC', ink: '#3A2A2C' },
+    arrowStyle: 'block',
     arrowColor: '#1F3A5F',
-    assets: { intro1: 'house', intro2: 'key', outro1: 'bulb' }
+    pill: 'light',
+    assets: { intro1: 'house', intro2: 'key', outro1: 'bulb' },
+    outro2Asset: 'jeep'
   },
   {
     id: 2,
+    name: 'cobalt',
+    bg: '#1668E3',
+    ink: '#FFFFFF',
+    font: 'Poppins',
+    weights: '700;800',
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'center',
+    badge: { bg: '#101010', ink: '#FFFFFF' },
+    arrowStyle: 'thin',
+    arrowColor: '#101010',
+    pill: 'light',
+    assets: { intro1: 'facade', intro2: 'docpencil', outro1: 'checkcircle' }
+  },
+  {
+    id: 3,
+    name: 'stone',
+    bg: '#DCD8D3',
+    ink: '#17130F',
+    font: 'Archivo',
+    weights: '700;800;900',
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'left',
+    badge: { bg: '#101010', ink: '#FFFFFF' },
+    arrowStyle: 'curved',
+    arrowColor: '#17130F',
+    pill: 'light',
+    assets: { intro1: 'house', intro2: 'key', outro1: 'bulb' }, // svg fallback only
+    assetMode: 'image',
+    imageSlots: STD_SLOTS
+  },
+  {
+    id: 4,
+    name: 'breeze',
+    bg: '#B8CFE8',
+    ink: '#3B2B23',
+    font: 'Baloo 2',
+    weights: '600;700;800',
+    caps: true,
+    italic: false,
+    spaced: false,
+    align: 'center',
+    badge: { bg: '#E8D44D', ink: '#3B2B23' },
+    arrowStyle: 'curved',
+    arrowColor: '#6E6E6E',
+    pill: 'subscribed',
+    assets: { intro1: 'house', intro2: 'branch', outro1: 'roof' }
+  },
+  {
+    id: 5,
+    name: 'slate',
+    bg: '#C9D4DE',
+    ink: '#101010',
+    font: 'Oswald',
+    weights: '500;600;700',
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'left',
+    badge: { bg: '#9FD8CE', ink: '#17342F' },
+    arrowStyle: 'block',
+    arrowColor: '#101010',
+    pill: 'outline',
+    underline2: true,
+    assets: { intro1: 'magnifier', intro2: 'handshake', outro1: 'clipboard' }
+  },
+  {
+    id: 6,
     name: 'navy',
     bg: '#1B3A75',
     ink: '#FFFFFF',
@@ -74,14 +168,35 @@ export const STORY_SETS: StorySet[] = [
     italic: true,
     spaced: true,
     align: 'left',
-    badge: { bg: '#101010', ink: '#FFFFFF' },
+    badge: { bg: '#101010', ink: '#FFFFFF', spaced: true },
+    arrowStyle: 'block',
     arrowColor: '#A9C6E8',
-    assets: { intro1: 'skyscraper', intro2: 'books', outro1: 'house' }
+    pill: 'subscribed',
+    assets: { intro1: 'tower', intro2: 'skyscraper', outro1: 'house' }
   },
   {
-    id: 3,
+    id: 7,
+    name: 'lavender',
+    bg: '#DDDEED',
+    ink: '#101010',
+    font: 'Poppins',
+    weights: '700;800',
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'center',
+    badge: { bg: '#FFFFFF', ink: '#101010', spaced: true },
+    arrowStyle: 'thin',
+    arrowColor: '#101010',
+    pill: 'outline',
+    assets: { intro1: 'books', intro2: 'questions', outro1: 'clipboard' },
+    assetMode: 'image',
+    imageSlots: STD_SLOTS
+  },
+  {
+    id: 8,
     name: 'paper',
-    bg: '#E9E4DE',
+    bg: '#E5E0D8',
     ink: '#171310',
     font: 'Archivo',
     weights: '700;800;900',
@@ -89,45 +204,51 @@ export const STORY_SETS: StorySet[] = [
     italic: false,
     spaced: false,
     align: 'left',
-    badge: { bg: '#FFFFFF', ink: '#171310' },
+    badge: { bg: '#FFFFFF', ink: '#171310', spaced: true },
+    arrowStyle: 'curved',
     arrowColor: '#D8342C',
-    assets: { intro1: 'books', intro2: 'questions', outro1: 'clipboard' }
+    pill: 'dark',
+    assets: { intro1: 'books', intro2: 'questions', outro1: 'clipboard' },
+    assetMode: 'image',
+    imageSlots: STD_SLOTS
   },
   {
-    id: 4,
-    name: 'sky',
-    bg: '#AECBEB',
+    id: 9,
+    name: 'skyday',
+    bg: '#A9C8E8',
     ink: '#14181F',
-    font: 'Nunito',
+    font: 'Archivo',
     weights: '800;900',
     caps: false,
     italic: false,
     spaced: false,
     align: 'center',
-    badge: { bg: '#FFFFFF', ink: '#14181F' },
+    badge: { bg: '#FFFFFF', ink: '#14181F', spaced: true },
+    arrowStyle: 'curved',
     arrowColor: '#3E2F28',
-    assets: { intro1: 'clipboard', intro2: 'questions', outro1: 'bulb' }
+    pill: 'subscribed',
+    assets: { intro1: 'questions', intro2: 'books', outro1: 'clipboard' },
+    assetMode: 'image',
+    imageSlots: STD_SLOTS
   },
   {
-    // Real-image set (the Set-3 storyboard look): warm gray, black badge,
-    // sentence-case bold, artist PNGs in the hero slots. Only used when the
-    // script explicitly asks for it via template_set (never auto-picked), and
-    // only when the PNG files are present in the template-assets folder.
-    id: 5,
-    name: 'photo',
-    bg: '#DCD7D2',
-    ink: '#17130F',
-    font: 'Poppins',
-    weights: '700;800',
+    id: 10,
+    name: 'mono',
+    bg: '#EDEDEB',
+    ink: '#111111',
+    font: 'Quicksand',
+    weights: '600;700',
     caps: false,
     italic: false,
     spaced: false,
-    align: 'left',
-    badge: { bg: '#101010', ink: '#FFFFFF' },
-    arrowColor: '#17130F',
-    assets: { intro1: 'house', intro2: 'key', outro1: 'bulb' }, // svg fallback only
+    align: 'center',
+    badge: { bg: '#FFFFFF', ink: '#111111', spaced: true },
+    arrowStyle: 'block',
+    arrowColor: '#111111',
+    pill: 'light',
+    assets: { intro1: 'skyscraper', intro2: 'tower', outro1: 'house' },
     assetMode: 'image',
-    imageSlots: { intro1: 'intro1_hero.png', intro2: 'intro2_hero.png', outro1: 'outro1_hero.png' }
+    imageSlots: STD_SLOTS
   }
 ]
 
@@ -141,15 +262,15 @@ function hash(s: string): number {
 }
 
 /**
- * Same seed → same set, so intro and outro always match. Auto-pick draws only
- * from code-drawn sets; image sets (which need uploaded PNGs) are used only
- * when explicitly requested via template_set.
+ * Same seed → same set, so intro and outro always match. Auto-pick draws from
+ * the code-drawn sets plus any image sets whose PNGs are confirmed available
+ * (the runner passes those ids). Explicit template_set overrides everything.
  */
-export function pickStorySet(seed: string, override?: number): StorySet {
+export function pickStorySet(seed: string, override?: number, availableImageSets: number[] = []): StorySet {
   if (override && override >= 1) {
     return STORY_SETS[(override - 1) % STORY_SETS.length]
   }
-  const pool = STORY_SETS.filter((s) => s.assetMode !== 'image')
+  const pool = STORY_SETS.filter((s) => s.assetMode !== 'image' || availableImageSets.includes(s.id))
   return pool[hash(`story:${seed}`) % pool.length]
 }
 
@@ -158,7 +279,7 @@ function esc(s: string): string {
 }
 
 // ---------------------------------------------------------------------
-// Flat SVG hero assets (code-drawn; artist PNGs come later)
+// Flat SVG hero assets (code-drawn; artist PNGs fill the image sets)
 // ---------------------------------------------------------------------
 function assetSvg(id: AssetId, px: number): string {
   const W = px
@@ -175,7 +296,7 @@ function assetSvg(id: AssetId, px: number): string {
     case 'key':
       return `<svg viewBox="0 0 140 260" width="${Math.round(W * 0.62)}" aria-hidden="true">
   <circle cx="70" cy="52" r="44" fill="#E8C766"/>
-  <circle cx="70" cy="46" r="16" fill="${'#00000022'}"/>
+  <circle cx="70" cy="46" r="16" fill="#00000022"/>
   <rect x="56" y="92" width="28" height="130" rx="8" fill="#E8C766"/>
   <rect x="56" y="160" width="52" height="18" rx="6" fill="#E8C766"/>
   <rect x="56" y="196" width="42" height="18" rx="6" fill="#E8C766"/>
@@ -205,6 +326,23 @@ function assetSvg(id: AssetId, px: number): string {
   ${windows}
 </svg>`
     }
+    case 'tower': {
+      // Art-deco stepped tower with observation deck (set 6 storyboard).
+      let bands = ''
+      for (let r = 0; r < 7; r++) {
+        bands += `<rect x="78" y="${112 + r * 20}" width="44" height="10" rx="2" fill="#8FA7C2"/>`
+      }
+      return `<svg viewBox="0 0 200 270" width="${Math.round(W * 0.78)}" aria-hidden="true">
+  <rect x="70" y="100" width="60" height="160" fill="#C9D6E3"/>
+  <rect x="46" y="200" width="24" height="60" fill="#B7C7D8"/>
+  <rect x="130" y="188" width="28" height="72" fill="#B7C7D8"/>
+  <rect x="58" y="72" width="84" height="30" rx="6" fill="#DAE4EE"/>
+  <rect x="66" y="78" width="68" height="12" rx="4" fill="#7E97B5"/>
+  <rect x="88" y="40" width="24" height="34" fill="#C9D6E3"/>
+  <rect x="96" y="14" width="8" height="28" fill="#9FB3C8"/>
+  ${bands}
+</svg>`
+    }
     case 'books':
       return `<svg viewBox="0 0 240 190" width="${W}" aria-hidden="true">
   <rect x="20" y="130" width="200" height="44" rx="8" fill="#D9694F"/>
@@ -230,14 +368,125 @@ function assetSvg(id: AssetId, px: number): string {
   <text x="60" y="130" font-family="Arial Black, Arial, sans-serif" font-size="130" font-weight="900" fill="#7C5CC4">?</text>
   <text x="140" y="170" font-family="Arial Black, Arial, sans-serif" font-size="100" font-weight="900" fill="#9B7FE0">?</text>
 </svg>`
+    case 'jeep':
+      return `<svg viewBox="0 0 260 150" width="${Math.round(W * 0.72)}" aria-hidden="true">
+  <rect x="14" y="52" width="232" height="58" rx="14" fill="#3A3A3A"/>
+  <rect x="40" y="26" width="150" height="40" rx="10" fill="#3A3A3A"/>
+  <rect x="52" y="34" width="42" height="26" rx="5" fill="#B9C6D2"/>
+  <rect x="102" y="34" width="42" height="26" rx="5" fill="#B9C6D2"/>
+  <rect x="150" y="34" width="30" height="26" rx="5" fill="#B9C6D2"/>
+  <rect x="222" y="44" width="16" height="34" rx="4" fill="#2B2B2B"/>
+  <circle cx="70" cy="112" r="26" fill="#1E1E1E"/>
+  <circle cx="70" cy="112" r="12" fill="#CFCFCF"/>
+  <circle cx="192" cy="112" r="26" fill="#1E1E1E"/>
+  <circle cx="192" cy="112" r="12" fill="#CFCFCF"/>
+</svg>`
+    case 'facade':
+      return `<svg viewBox="0 0 220 260" width="${Math.round(W * 0.8)}" aria-hidden="true">
+  <path d="M20 60 L150 20 L150 260 L20 260 Z" fill="#F08A7E"/>
+  <path d="M150 20 L200 44 L200 260 L150 260 Z" fill="#E06A5C"/>
+  <rect x="52" y="78" width="52" height="64" rx="4" fill="#E8542F"/>
+  <rect x="62" y="88" width="32" height="44" fill="#3A241F"/>
+  <rect x="52" y="170" width="52" height="64" rx="4" fill="#E8542F"/>
+  <rect x="62" y="180" width="32" height="44" fill="#3A241F"/>
+</svg>`
+    case 'docpencil':
+      return `<svg viewBox="0 0 220 220" width="${Math.round(W * 0.78)}" aria-hidden="true">
+  <rect x="58" y="18" width="120" height="150" rx="8" fill="#F2E3B8" transform="rotate(8 118 93)"/>
+  <rect x="40" y="30" width="130" height="164" rx="8" fill="#FFFFFF" stroke="#D8D2C4" stroke-width="3"/>
+  <rect x="56" y="52" width="18" height="16" rx="3" fill="#6FBF6F"/>
+  <rect x="82" y="54" width="72" height="10" rx="5" fill="#B9C0CC"/>
+  <rect x="56" y="86" width="18" height="16" rx="3" fill="#E06A5C"/>
+  <rect x="82" y="88" width="72" height="10" rx="5" fill="#B9C0CC"/>
+  <rect x="56" y="120" width="18" height="16" rx="3" fill="#E8C94A"/>
+  <rect x="82" y="122" width="72" height="10" rx="5" fill="#B9C0CC"/>
+  <g transform="rotate(38 170 150)">
+    <rect x="158" y="86" width="22" height="106" rx="4" fill="#E8B14A"/>
+    <polygon points="158,192 180,192 169,216" fill="#E3C6A0"/>
+    <polygon points="164,205 174,205 169,216" fill="#3A3A3A"/>
+    <rect x="158" y="78" width="22" height="12" fill="#D96A6A"/>
+  </g>
+</svg>`
+    case 'checkcircle':
+      return `<svg viewBox="0 0 240 240" width="${Math.round(W * 0.82)}" aria-hidden="true">
+  <ellipse cx="120" cy="122" rx="96" ry="92" fill="none" stroke="#101010" stroke-width="12" transform="rotate(-6 120 122)" stroke-linecap="round" stroke-dasharray="560 40"/>
+  <path d="M72 126 l34 36 62 -84" stroke="#3FA35C" stroke-width="20" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+    case 'branch':
+      return `<svg viewBox="0 0 220 240" width="${Math.round(W * 0.72)}" aria-hidden="true">
+  <g stroke="#2E8C8C" stroke-width="34" stroke-linecap="round" fill="none">
+    <path d="M60 220 L150 60"/>
+    <path d="M116 122 L60 84"/>
+    <path d="M136 88 L182 96"/>
+  </g>
+  <g stroke="#EAD46A" stroke-width="3" fill="none" opacity="0.7">
+    <path d="M70 206 L144 74"/>
+    <path d="M112 116 L76 92"/>
+  </g>
+</svg>`
+    case 'roof':
+      return `<svg viewBox="0 0 240 200" width="${W}" aria-hidden="true">
+  <polygon points="120,30 232,196 8,196" fill="#A9603A"/>
+  <g stroke="#7E4527" stroke-width="5">
+    <line x1="76" y1="120" x2="164" y2="120"/>
+    <line x1="52" y1="158" x2="188" y2="158"/>
+  </g>
+  <rect x="152" y="56" width="24" height="52" fill="#7E4527"/>
+  <circle cx="164" cy="40" r="12" fill="#EFEFEF"/>
+  <circle cx="176" cy="26" r="9" fill="#F7F7F7"/>
+</svg>`
+    case 'magnifier':
+      return `<svg viewBox="0 0 220 240" width="${Math.round(W * 0.7)}" aria-hidden="true">
+  <circle cx="96" cy="92" r="64" fill="#CDE6F2" stroke="#7FA8BC" stroke-width="10"/>
+  <path d="M60 66 a44 44 0 0 1 40 -18" stroke="#FFFFFF" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <rect x="128" y="140" width="34" height="86" rx="14" fill="#3E4550" transform="rotate(-38 145 183)"/>
+</svg>`
+    case 'handshake':
+      return `<svg viewBox="0 0 280 180" width="${W}" aria-hidden="true">
+  <path d="M8 58 L84 40 L108 96 L60 132 L8 118 Z" fill="#2F5D8A"/>
+  <path d="M272 58 L196 40 L172 96 L220 132 L272 118 Z" fill="#3E77AC"/>
+  <path d="M84 62 q28 -14 46 4 l32 30 q10 10 0 20 q-10 10 -20 0 l-8 -8 q-8 12 -20 4 l-10 -8 q-8 12 -20 2 l-18 -18 q-10 -14 18 -26" fill="#E8B48E" stroke="#3A2A1E" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M196 62 q-28 -16 -48 2 l-20 18" fill="none" stroke="#3A2A1E" stroke-width="6" stroke-linecap="round"/>
+</svg>`
   }
 }
 
-function arrowSvg(color: string, px: number): string {
-  return `<svg viewBox="0 0 120 200" width="${Math.round(px * 0.5)}" aria-hidden="true">
+function arrowSvgStyled(style: ArrowStyle, color: string, px: number): string {
+  const W = Math.round(px * 0.5)
+  switch (style) {
+    case 'block':
+      return `<svg viewBox="0 0 120 200" width="${W}" aria-hidden="true">
   <path d="M60 8 L60 128" stroke="${color}" stroke-width="26" stroke-linecap="round" fill="none"/>
   <polygon points="18,120 102,120 60,188" fill="${color}"/>
 </svg>`
+    case 'thin':
+      return `<svg viewBox="0 0 120 200" width="${Math.round(W * 0.8)}" aria-hidden="true">
+  <path d="M60 8 L60 168" stroke="${color}" stroke-width="10" stroke-linecap="round" fill="none"/>
+  <path d="M24 136 L60 180 L96 136" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>`
+    case 'curved':
+      return `<svg viewBox="0 0 160 200" width="${Math.round(W * 1.1)}" aria-hidden="true">
+  <path d="M118 10 q30 60 -8 106 q-24 30 -62 34" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round"/>
+  <path d="M78 122 L44 152 L86 168" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+  }
+}
+
+const BELL = (fill: string, size: number) =>
+  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="${fill}" aria-hidden="true"><path d="M12 22a2.6 2.6 0 0 0 2.55-2.1h-5.1A2.6 2.6 0 0 0 12 22Zm7.3-5.2-1.7-1.75V10.9a5.7 5.7 0 0 0-4.2-5.5V4.7a1.4 1.4 0 0 0-2.8 0v.7a5.7 5.7 0 0 0-4.2 5.5v4.15L4.7 16.8A1 1 0 0 0 5.45 18.5h13.1a1 1 0 0 0 .75-1.7Z"/></svg>`
+
+function pillHtml(set: StorySet, pulseDelay: number): string {
+  const d = pulseDelay.toFixed(2)
+  switch (set.pill) {
+    case 'light':
+      return `<div class="sub sub-light" style="animation-delay:${d}s"><span class="sub-label">Subscribe</span></div>`
+    case 'dark':
+      return `<div class="sub sub-dark" style="animation-delay:${d}s"><span class="sub-label">SUBSCRIBE</span><span class="sub-bell">${BELL('#101010', 30)}</span></div>`
+    case 'outline':
+      return `<div class="sub sub-outline" style="animation-delay:${d}s"><span class="sub-label">SUBSCRIBE</span>${BELL(set.ink, 34)}</div>`
+    case 'subscribed':
+      return `<div class="sub sub-light" style="animation-delay:${d}s">${BELL('#101010', 32)}<span class="sub-label">Subscribed</span><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#101010" stroke-width="3" aria-hidden="true"><path d="M5 9 L12 16 L19 9"/></svg></div>`
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -302,6 +551,7 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   const hero2Delay = tSplit + 0.4
 
   // Outro CTA timings
+  const ctaImgDelay = Math.min(s2.last + 0.3, Math.max(s2From, D - 1.55))
   const pillDelay = Math.min(s2.last + 0.45, Math.max(s2From, D - 1.25))
   const arrowDelay = Math.min(pillDelay + 0.35, Math.max(s2From, D - 0.9))
   const pulseDelay = Math.min(pillDelay + 0.7, D - 0.4)
@@ -312,6 +562,10 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   const spacedCss = set.spaced ? 'letter-spacing:3px;' : ''
   const alignCss =
     set.align === 'left' ? 'text-align:left;align-items:flex-start;' : set.align === 'right' ? 'text-align:right;align-items:flex-end;' : 'text-align:center;align-items:center;'
+  const badgeSpacedCss = set.badge.spaced ? 'letter-spacing:4px;text-transform:uppercase;' : 'letter-spacing:2px;'
+  const underline2Css = set.underline2
+    ? '.sc2 .txt{text-decoration:underline;text-decoration-thickness:6px;text-underline-offset:12px}'
+    : ''
 
   const badgeHtml =
     spec.kind === 'intro' && spec.badge
@@ -319,8 +573,6 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
       : ''
 
   // Hero content per slot: an uploaded PNG (image sets) or the code-drawn SVG.
-  // The PNG sits in a fixed-size slot box (object-fit contain), so layout and
-  // safe-zone geometry are stable regardless of the image's own dimensions.
   const heroFor = (slot: 'intro1' | 'intro2' | 'outro1'): string => {
     const href = spec.images?.[slot]
     if (set.assetMode === 'image' && href) {
@@ -335,47 +587,59 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
       ? `<div class="hero pop" style="animation-delay:${hero2Delay.toFixed(2)}s"><div class="float" style="animation-delay:${(hero2Delay + 0.8).toFixed(2)}s">${heroFor('intro2')}</div></div>`
       : ''
 
+  // Outro scene 2: optional small coded hero (set 1's jeep) + pill + arrow.
+  const ctaImgHtml =
+    spec.subscribe && set.outro2Asset && set.assetMode !== 'image'
+      ? `<div class="cta-img pop" style="animation-delay:${ctaImgDelay.toFixed(2)}s">${assetSvg(set.outro2Asset, 380)}</div>`
+      : ''
   const ctaHtml = spec.subscribe
-    ? `
-      <div class="cta-pop" style="animation-delay:${pillDelay.toFixed(2)}s">
-        <div class="sub" style="animation-delay:${pulseDelay.toFixed(2)}s">
-          <span class="sub-label">SUBSCRIBE</span>
-          <span class="sub-bell"><svg viewBox="0 0 24 24" width="36" height="36" fill="#E8412C" aria-hidden="true"><path d="M12 22a2.6 2.6 0 0 0 2.55-2.1h-5.1A2.6 2.6 0 0 0 12 22Zm7.3-5.2-1.7-1.75V10.9a5.7 5.7 0 0 0-4.2-5.5V4.7a1.4 1.4 0 0 0-2.8 0v.7a5.7 5.7 0 0 0-4.2 5.5v4.15L4.7 16.8A1 1 0 0 0 5.45 18.5h13.1a1 1 0 0 0 .75-1.7Z"/></svg></span>
-        </div>
-      </div>
+    ? `${ctaImgHtml}
+      <div class="cta-pop" style="animation-delay:${pillDelay.toFixed(2)}s">${pillHtml(set, pulseDelay)}</div>
       <div class="arrow-pop" style="animation-delay:${arrowDelay.toFixed(2)}s">
-        <div class="bob" style="animation-delay:${bobDelay.toFixed(2)}s">${arrowSvg(set.arrowColor, 520)}</div>
+        <div class="bob" style="animation-delay:${bobDelay.toFixed(2)}s">${arrowSvgStyled(set.arrowStyle, set.arrowColor, 520)}</div>
       </div>`
     : ''
 
   const fontParam = set.font.trim().replace(/\s+/g, '+')
+  const weightList = set.weights.split(';')
+  const fontAxis = set.italic
+    ? `ital,wght@${weightList.map((w) => `0,${w}`).join(';')};${weightList.map((w) => `1,${w}`).join(';')}`
+    : `wght@${set.weights}`
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=${fontParam}:ital,wght@0,${set.weights.split(';').join(';0,')};1,${set.weights.split(';').join(';1,')}&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=${fontParam}:${fontAxis}&display=swap" rel="stylesheet">
 <style>
   html,body{margin:0;padding:0}
   #stage{position:relative;width:1080px;height:1920px;overflow:hidden;background:${set.bg};font-family:'${set.font}',system-ui,sans-serif}
   .safe{position:absolute;left:${m.left}px;right:${m.right}px;top:${m.top}px;bottom:${m.bottom}px;box-sizing:border-box}
   .scene{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-start;gap:44px;${alignCss}}
   .sc1{animation:scOut .35s ease-in both;animation-delay:${exitDelay.toFixed(2)}s;animation-iteration-count:1}
-  .sc2{opacity:0;animation:scIn .35s ease-out both;animation-delay:${tSplit.toFixed(2)}s;animation-iteration-count:1;justify-content:${spec.subscribe ? 'flex-start' : 'flex-start'}}
-  .badge{display:inline-block;background:${set.badge.bg};color:${set.badge.ink};font-weight:800;font-size:34px;${capsCss}letter-spacing:2px;
+  .sc2{opacity:0;animation:scIn .35s ease-out both;animation-delay:${tSplit.toFixed(2)}s;animation-iteration-count:1}
+  .badge{display:inline-block;background:${set.badge.bg};color:${set.badge.ink};font-weight:800;font-size:34px;${badgeSpacedCss}
          padding:12px 28px;border-radius:14px;margin-top:26px;opacity:0;animation:drop .45s cubic-bezier(.2,.8,.3,1.15) both;animation-iteration-count:1}
   .txt{color:${set.ink};font-weight:900;${capsCss}${italicCss}${spacedCss}line-height:1.16;max-width:100%;
        overflow-wrap:normal;word-break:keep-all;margin-top:18px}
+  ${underline2Css}
   .w{display:inline-block;opacity:0;animation:wIn .38s cubic-bezier(.2,.7,.3,1) both;animation-iteration-count:1}
   .hero{margin-top:auto;align-self:center;opacity:0}
   .imgslot{width:600px;height:540px;display:flex;align-items:center;justify-content:center}
   .imgslot img{max-width:100%;max-height:100%;display:block}
   .pop{animation:pop .55s cubic-bezier(.2,.85,.3,1.25) both;animation-iteration-count:1}
   .float{animation:float 3.2s ease-in-out infinite}
-  .cta-pop{align-self:center;margin-top:34px;opacity:0;animation:pop .5s cubic-bezier(.2,.9,.3,1.2) both;animation-iteration-count:1}
-  .sub{display:inline-flex;align-items:center;gap:18px;background:#E8412C;border-radius:999px;padding:14px 18px 14px 32px;animation:pulse 2.4s ease-in-out infinite}
-  .sub-label{color:#fff;font-weight:900;font-size:40px;letter-spacing:1px;font-style:normal}
-  .sub-bell{width:60px;height:60px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center}
+  .cta-img{align-self:center;margin-top:26px;opacity:0}
+  .cta-pop{align-self:center;margin-top:30px;opacity:0;animation:pop .5s cubic-bezier(.2,.9,.3,1.2) both;animation-iteration-count:1}
+  .sub{display:inline-flex;align-items:center;gap:16px;border-radius:999px;animation:pulse 2.4s ease-in-out infinite}
+  .sub-light{background:#FFFFFF;padding:16px 40px}
+  .sub-light .sub-label{color:#101010}
+  .sub-dark{background:#101010;padding:14px 18px 14px 32px}
+  .sub-dark .sub-label{color:#FFFFFF}
+  .sub-dark .sub-bell{width:56px;height:56px;border-radius:50%;background:#FFFFFF;display:flex;align-items:center;justify-content:center}
+  .sub-outline{background:transparent;border:4px solid ${set.ink};padding:12px 30px}
+  .sub-outline .sub-label{color:${set.ink}}
+  .sub-label{font-weight:800;font-size:38px;letter-spacing:1px;font-style:normal}
   .arrow-pop{align-self:center;margin-top:30px;opacity:0;animation:wIn .5s ease-out both;animation-iteration-count:1}
   .bob{animation:bob 1.6s ease-in-out infinite}
   @keyframes wIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}

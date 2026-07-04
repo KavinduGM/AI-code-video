@@ -12,7 +12,7 @@ import {
   buildAnimatedIntroOutroCard,
   buildStoryIntroOutroCard
 } from './claude'
-import { pickStorySet } from './storycards'
+import { pickStorySet, STORY_SETS } from './storycards'
 import { computeSceneFeatures, saveTemplate, findBestTemplate } from './templates'
 import { generateAudioWithTimestamps, type WordTiming } from './tts'
 import { mergeExamTokens, buildAss } from './captions'
@@ -369,7 +369,20 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
     // scene swap would false-trigger the motion audit's loop detector).
     if ((seg.mode === 'intro' || seg.mode === 'outro') && seg.scene1 && seg.scene2) {
       try {
-        const storySet = pickStorySet(spec.video_name, spec.template_set)
+        // Image sets join the auto-pick rotation only when ALL their PNGs are
+        // present, so a missing asset can never break an auto-picked video.
+        const availableImageSets = STORY_SETS.filter((s) => s.assetMode === 'image')
+          .filter((s) => {
+            const dir = path.join(getStoragePaths().userData, 'template-assets', `set-${s.id}`)
+            const slots = s.imageSlots!
+            return (
+              fs.existsSync(path.join(dir, slots.intro1)) &&
+              fs.existsSync(path.join(dir, slots.intro2)) &&
+              fs.existsSync(path.join(dir, slots.outro1))
+            )
+          })
+          .map((s) => s.id)
+        const storySet = pickStorySet(spec.video_name, spec.template_set, availableImageSets)
         cb.onProgress(baseProgress + segShare * 0.35, `${seg.label}: composing story template card`)
         cb.onLog(info(`${seg.label}: composing 2-scene story template card (set ${storySet.id} "${storySet.name}"${spec.channel ? `, badge "${spec.channel}"` : ''}${seg.subscribe ? ', subscribe CTA' : ''}) — deterministic, review skipped`))
 
