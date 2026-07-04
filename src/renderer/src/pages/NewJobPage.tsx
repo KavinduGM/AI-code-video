@@ -197,8 +197,9 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
           </button>
         </div>
         <div className="hint" style={{ marginTop: 6 }}>
-          Preview renders ONLY the intro/outro template card (silent, ~30s, zero API credits) and
-          opens the mp4 — perfect for checking a template design without running the whole video.
+          Preview renders the COMPLETE intro/outro segment — real voiceover, background music,
+          template card and karaoke captions — skipping only the middle scenes. Costs a little
+          ElevenLabs credit, no Claude credits. The mp4 opens when done (~1 min).
         </div>
         <div
           onDragOver={(e) => e.preventDefault()}

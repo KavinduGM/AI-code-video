@@ -30,6 +30,10 @@ import { templateCount, clearTemplates } from './pipeline/templates'
 import { pickStorySet, STORY_SETS } from './pipeline/storycards'
 import { buildStoryIntroOutroCard } from './pipeline/claude'
 import { scaffoldProject, renderHyperframes } from './pipeline/hyperframes'
+import { generateAudioWithTimestamps } from './pipeline/tts'
+import { probeDurationSeconds, mixVoiceWithMusic, muxAudioWithVideo, burnSubtitles } from './pipeline/ffmpeg'
+import { mergeExamTokens, buildAss } from './pipeline/captions'
+import { findProfileByName, findMusicByName } from './settings'
 
 export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.SETTINGS_GET, () => getSettings())
@@ -232,38 +236,65 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     }
   })
 
-  // ---- Fast intro/outro DESIGN PREVIEW -----------------------------------
-  // Renders ONLY the story template card for the given part — no ElevenLabs,
-  // no Claude, no music, no captions. Duration is estimated from the
-  // voiceover word count so the timings resemble the real video. Costs zero
-  // API credits and finishes in ~30s; opens the preview mp4's folder when done.
+  // ---- COMPLETE intro/outro PREVIEW (no middle scenes) -------------------
+  // Produces the REAL segment exactly as a full job would: ElevenLabs
+  // voiceover with word timings, background music at 5%, the story template
+  // card at the true audio duration, held-frame tail, and burned karaoke
+  // captions. Only the middle scenes, transitions and assembly are skipped.
   ipcMain.handle(
     IPC.PREVIEW_CARD,
     async (_e, args: { script_yaml: string; part: 'intro' | 'outro' }): Promise<{ ok: boolean; message: string; path?: string }> => {
       try {
+        const settings = getSettings()
         const spec = parseScript(args.script_yaml)
         const io = args.part === 'intro' ? spec.intro : spec.outro
         if (!io) return { ok: false, message: `The script has no ${args.part} section.` }
         if (!io.scene1 || !io.scene2) {
           return { ok: false, message: `The ${args.part} has no scene1/scene2 — the story template preview needs both.` }
         }
+        const profile = findProfileByName(spec.voice_profile)
+        if (!profile) {
+          return { ok: false, message: `Voice profile "${spec.voice_profile}" not found — create it on the Voice Profiles page.` }
+        }
 
-        // Estimate the voiceover duration (~2.4 words/sec, clamped 6–14s).
-        const words = io.voiceover.trim().split(/\s+/).filter(Boolean).length
-        const durationSeconds = Math.min(14, Math.max(6, words / 2.4))
+        const previewDir = path.join(getStoragePaths().workspace, `preview-${randomUUID().slice(0, 8)}`)
+        fs.mkdirSync(previewDir, { recursive: true })
 
-        // Same set + image resolution logic as the runner.
-        const availableImageSets = STORY_SETS.filter((s) => s.assetMode === 'image')
-          .filter((s) => {
-            const dir = path.join(getStoragePaths().userData, 'template-assets', `set-${s.id}`)
-            const slots = s.imageSlots!
+        // 1) Real voiceover with word timings (same as a full job).
+        const audioPath = path.join(previewDir, 'audio.mp3')
+        const tts = await generateAudioWithTimestamps(
+          { apiKey: settings.elevenlabs_api_key },
+          { text: io.voiceover, profile, speedOverride: spec.voice_speed, outPath: audioPath }
+        )
+        const durationSeconds = await probeDurationSeconds(audioPath)
+
+        // 2) Background music at 5% (script name -> global default), best-effort.
+        let audioForMux = audioPath
+        const musicPath = spec.background_music
+          ? findMusicByName(spec.background_music)?.path
+          : settings.background_music_path
+        if (musicPath && fs.existsSync(musicPath)) {
+          try {
+            const mixed = path.join(previewDir, 'audio-mixed.mp3')
+            await mixVoiceWithMusic({ voiceIn: audioPath, musicIn: musicPath, out: mixed, musicVolume: 0.05, durationSeconds })
+            audioForMux = mixed
+          } catch {
+            /* keep plain voiceover */
+          }
+        }
+
+        // 3) The story template card — same set picking + PNG slots as the runner.
+        const availableImageSets = STORY_SETS.filter((st) => st.assetMode === 'image')
+          .filter((st) => {
+            const dir = path.join(getStoragePaths().userData, 'template-assets', `set-${st.id}`)
+            const slots = st.imageSlots!
             return (
               fs.existsSync(path.join(dir, slots.intro1)) &&
               fs.existsSync(path.join(dir, slots.intro2)) &&
               fs.existsSync(path.join(dir, slots.outro1))
             )
           })
-          .map((s) => s.id)
+          .map((st) => st.id)
         const storySet = pickStorySet(spec.video_name, spec.template_set, availableImageSets)
 
         let images: Partial<Record<'intro1' | 'intro2' | 'outro1' | 'outro2', string>> | undefined
@@ -296,20 +327,38 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
           images
         })
 
-        const previewDir = path.join(getStoragePaths().workspace, `preview-${randomUUID().slice(0, 8)}`)
+        // 4) Render + mux with the same held-frame tail a full job uses
+        //    (intro feeds the wipe -> short tail; outro ends the video -> 1s).
         const projectDir = path.join(previewDir, 'project')
         await scaffoldProject(projectDir, html)
         for (const a of assetCopies) {
           await fs.promises.copyFile(a.src, path.join(projectDir, 'assets', a.name))
         }
-        const out = path.join(previewDir, `${args.part}_set${storySet.id}_preview.mp4`)
-        const settings = getSettings()
-        await renderHyperframes({ command: settings.hyperframes_command, projectDir, outputMp4: out, onLog: () => {} })
-        shell.showItemInFolder(out)
+        const rawMp4 = path.join(previewDir, 'render.mp4')
+        await renderHyperframes({ command: settings.hyperframes_command, projectDir, outputMp4: rawMp4, onLog: () => {} })
+        const muxed = path.join(previewDir, 'muxed.mp4')
+        const tail = args.part === 'intro' ? 0.35 : 1.0
+        await muxAudioWithVideo({ videoIn: rawMp4, audioIn: audioForMux, out: muxed, durationSeconds, tailHoldSeconds: tail })
+
+        // 5) Karaoke captions, exactly like the final assembly (offset 0).
+        let finalOut = muxed
+        if (spec.captions !== false && tts.words && tts.words.length > 0) {
+          const assFile = 'captions.ass'
+          await fs.promises.writeFile(path.join(previewDir, assFile), buildAss([{ units: mergeExamTokens(tts.words), offset: 0 }]), 'utf8')
+          const captioned = path.join(previewDir, `${args.part}_set${storySet.id}_preview.mp4`)
+          try {
+            await burnSubtitles({ videoIn: muxed, assDir: previewDir, assFile, out: captioned })
+            finalOut = captioned
+          } catch {
+            /* captions best-effort in preview */
+          }
+        }
+
+        shell.showItemInFolder(finalOut)
         return {
           ok: true,
-          message: `Preview rendered with set ${storySet.id} "${storySet.name}" (${durationSeconds.toFixed(1)}s, silent — design check only).`,
-          path: out
+          message: `Complete ${args.part} preview rendered with set ${storySet.id} "${storySet.name}" (${durationSeconds.toFixed(1)}s + tail, voice + music + captions).`,
+          path: finalOut
         }
       } catch (err: any) {
         return { ok: false, message: `Preview failed: ${err?.message ?? err}` }
