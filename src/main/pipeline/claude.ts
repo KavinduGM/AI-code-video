@@ -423,6 +423,7 @@ export async function buildStoryIntroOutroCard(args: {
   subscribe?: boolean
   durationSeconds: number
   set: StorySet
+  images?: Partial<Record<'intro1' | 'intro2' | 'outro1', string>>
 }): Promise<string> {
   let html = buildStoryCardHtml({
     kind: args.kind,
@@ -431,7 +432,8 @@ export async function buildStoryIntroOutroCard(args: {
     badge: args.badge,
     subscribe: args.subscribe,
     durationSeconds: args.durationSeconds,
-    set: args.set
+    set: args.set,
+    images: args.images
   })
   try {
     const measurement = await measureSafeZone(html, args.durationSeconds)

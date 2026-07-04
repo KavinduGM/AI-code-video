@@ -32,6 +32,10 @@ export interface StorySet {
   badge: { bg: string; ink: string }
   arrowColor: string
   assets: { intro1: AssetId; intro2: AssetId; outro1: AssetId }
+  /** 'svg' (default) = code-drawn heroes; 'image' = artist PNGs fill the slots */
+  assetMode?: 'svg' | 'image'
+  /** for image sets: the PNG filename expected in each hero slot */
+  imageSlots?: { intro1: string; intro2: string; outro1: string }
 }
 
 export type AssetId =
@@ -103,6 +107,27 @@ export const STORY_SETS: StorySet[] = [
     badge: { bg: '#FFFFFF', ink: '#14181F' },
     arrowColor: '#3E2F28',
     assets: { intro1: 'clipboard', intro2: 'questions', outro1: 'bulb' }
+  },
+  {
+    // Real-image set (the Set-3 storyboard look): warm gray, black badge,
+    // sentence-case bold, artist PNGs in the hero slots. Only used when the
+    // script explicitly asks for it via template_set (never auto-picked), and
+    // only when the PNG files are present in the template-assets folder.
+    id: 5,
+    name: 'photo',
+    bg: '#DCD7D2',
+    ink: '#17130F',
+    font: 'Poppins',
+    weights: '700;800',
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'left',
+    badge: { bg: '#101010', ink: '#FFFFFF' },
+    arrowColor: '#17130F',
+    assets: { intro1: 'house', intro2: 'key', outro1: 'bulb' }, // svg fallback only
+    assetMode: 'image',
+    imageSlots: { intro1: 'intro1_hero.png', intro2: 'intro2_hero.png', outro1: 'outro1_hero.png' }
   }
 ]
 
@@ -115,12 +140,17 @@ function hash(s: string): number {
   return h >>> 0
 }
 
-/** Same seed → same set, so intro and outro always match. */
+/**
+ * Same seed → same set, so intro and outro always match. Auto-pick draws only
+ * from code-drawn sets; image sets (which need uploaded PNGs) are used only
+ * when explicitly requested via template_set.
+ */
 export function pickStorySet(seed: string, override?: number): StorySet {
   if (override && override >= 1) {
     return STORY_SETS[(override - 1) % STORY_SETS.length]
   }
-  return STORY_SETS[hash(`story:${seed}`) % STORY_SETS.length]
+  const pool = STORY_SETS.filter((s) => s.assetMode !== 'image')
+  return pool[hash(`story:${seed}`) % pool.length]
 }
 
 function esc(s: string): string {
@@ -222,6 +252,8 @@ export interface StoryCardSpec {
   subscribe?: boolean
   durationSeconds: number
   set: StorySet
+  /** for image sets: resolved hrefs per hero slot (e.g. "assets/intro1_hero.png") */
+  images?: Partial<Record<'intro1' | 'intro2' | 'outro1', string>>
 }
 
 function textSizeFor(text: string): number {
@@ -286,10 +318,21 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
       ? `<div class="badge" style="animation-delay:${badgeDelay.toFixed(2)}s">${esc(spec.badge)}</div>`
       : ''
 
-  const hero1 = assetSvg(spec.kind === 'intro' ? set.assets.intro1 : set.assets.outro1, 520)
+  // Hero content per slot: an uploaded PNG (image sets) or the code-drawn SVG.
+  // The PNG sits in a fixed-size slot box (object-fit contain), so layout and
+  // safe-zone geometry are stable regardless of the image's own dimensions.
+  const heroFor = (slot: 'intro1' | 'intro2' | 'outro1'): string => {
+    const href = spec.images?.[slot]
+    if (set.assetMode === 'image' && href) {
+      return `<div class="imgslot"><img src="${href}" alt=""/></div>`
+    }
+    return assetSvg(set.assets[slot], 520)
+  }
+
+  const hero1 = heroFor(spec.kind === 'intro' ? 'intro1' : 'outro1')
   const hero2Html =
     spec.kind === 'intro'
-      ? `<div class="hero pop" style="animation-delay:${hero2Delay.toFixed(2)}s"><div class="float" style="animation-delay:${(hero2Delay + 0.8).toFixed(2)}s">${assetSvg(set.assets.intro2, 520)}</div></div>`
+      ? `<div class="hero pop" style="animation-delay:${hero2Delay.toFixed(2)}s"><div class="float" style="animation-delay:${(hero2Delay + 0.8).toFixed(2)}s">${heroFor('intro2')}</div></div>`
       : ''
 
   const ctaHtml = spec.subscribe
@@ -325,6 +368,8 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
        overflow-wrap:normal;word-break:keep-all;margin-top:18px}
   .w{display:inline-block;opacity:0;animation:wIn .38s cubic-bezier(.2,.7,.3,1) both;animation-iteration-count:1}
   .hero{margin-top:auto;align-self:center;opacity:0}
+  .imgslot{width:600px;height:540px;display:flex;align-items:center;justify-content:center}
+  .imgslot img{max-width:100%;max-height:100%;display:block}
   .pop{animation:pop .55s cubic-bezier(.2,.85,.3,1.25) both;animation-iteration-count:1}
   .float{animation:float 3.2s ease-in-out infinite}
   .cta-pop{align-self:center;margin-top:34px;opacity:0;animation:pop .5s cubic-bezier(.2,.9,.3,1.2) both;animation-iteration-count:1}

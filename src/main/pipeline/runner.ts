@@ -372,6 +372,29 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
         const storySet = pickStorySet(spec.video_name, spec.template_set)
         cb.onProgress(baseProgress + segShare * 0.35, `${seg.label}: composing story template card`)
         cb.onLog(info(`${seg.label}: composing 2-scene story template card (set ${storySet.id} "${storySet.name}"${spec.channel ? `, badge "${spec.channel}"` : ''}${seg.subscribe ? ', subscribe CTA' : ''}) — deterministic, review skipped`))
+
+        // Image sets: resolve the uploaded PNGs from the template-assets folder,
+        // fail loudly (with the exact expected paths) when they're missing, and
+        // copy them into the Hyperframes project's assets/ dir after scaffolding.
+        let images: Partial<Record<'intro1' | 'intro2' | 'outro1', string>> | undefined
+        const assetCopies: { src: string; name: string }[] = []
+        if (storySet.assetMode === 'image') {
+          const assetDir = path.join(getStoragePaths().userData, 'template-assets', `set-${storySet.id}`)
+          const slots = storySet.imageSlots!
+          const needed: ('intro1' | 'intro2' | 'outro1')[] = seg.mode === 'intro' ? ['intro1', 'intro2'] : ['outro1']
+          images = {}
+          for (const slot of needed) {
+            const file = slots[slot]
+            const full = path.join(assetDir, file)
+            if (!fs.existsSync(full)) {
+              throw new Error(`template image missing: ${full} — add the PNG there (transparent background) and re-run`)
+            }
+            images[slot] = `assets/${file}`
+            assetCopies.push({ src: full, name: file })
+          }
+          cb.onLog(info(`${seg.label}: using uploaded template images from ${assetDir} (${assetCopies.map((a) => a.name).join(', ')})`))
+        }
+
         const html = await buildStoryIntroOutroCard({
           kind: seg.mode,
           scene1: seg.scene1,
@@ -379,9 +402,13 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
           badge: spec.channel,
           subscribe: seg.subscribe,
           durationSeconds: audioDuration,
-          set: storySet
+          set: storySet,
+          images
         })
         await scaffoldProject(projectDir, html)
+        for (const a of assetCopies) {
+          await fs.promises.copyFile(a.src, path.join(projectDir, 'assets', a.name))
+        }
         if (handle.cancelled) throw new Error('Cancelled')
         const rawMp4 = path.join(segDir, 'render_story.mp4')
         cb.onProgress(baseProgress + segShare * 0.55, `${seg.label}: rendering with Hyperframes`)
