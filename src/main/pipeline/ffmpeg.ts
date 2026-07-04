@@ -214,8 +214,13 @@ export async function concatScenesWithTransitions(
   for (let i = 0; i < scenes.length; i++) {
     const v = `v${i}`
     const a = `a${i}`
+    // settb=AVTB pins every stream to one common timebase. Without it, a chain
+    // that MIXES hard cuts (concat filter) and crossfades (xfade) fails with
+    // "input link main timebase (1/1000000) does not match xfade timebase
+    // (1/30)" — the concat step re-clocks its output and every later xfade
+    // refuses to configure.
     filterParts.push(
-      `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=${fps},format=yuv420p,setpts=PTS-STARTPTS[${v}]`
+      `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=${fps},format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[${v}]`
     )
     filterParts.push(`[${i}:a]aformat=channel_layouts=stereo:sample_rates=48000,asetpts=PTS-STARTPTS[${a}]`)
     vLabels.push(v)
