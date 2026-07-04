@@ -22,6 +22,8 @@ import {
   mixVoiceWithMusic,
   burnSubtitles,
   buildWipeTransitionClip,
+  verifyTransitionClip,
+  pickTransitionStyle,
   WIPE_TRANSITION_SECONDS,
   probeDurationSeconds,
   sampleInkFractions,
@@ -167,11 +169,15 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
     })
   }
 
-  // ---- Layered diagonal wipe transitions at the intro/outro joins ----
-  // A deterministic 0.85s clip (three blue layers sweeping bottom-left →
-  // top-right, whoosh SFX baked in) is inserted between intro↔first scene and
-  // last scene↔outro, joined to both neighbors with matching diagonal wipes —
-  // no more hard cuts around the title cards.
+  // ---- Layered wipe transitions at the intro/outro joins ----
+  // A deterministic 0.85s clip — colored layers sweeping diagonally OR circles
+  // expanding from the center, style hash-picked per video (same style at both
+  // joins of one video) — is inserted between intro↔first scene and last
+  // scene↔outro. The outgoing side joins with a matching xfade (riding the
+  // outgoing segment's held tail); the incoming side is a HARD CUT after the
+  // final color has filled and held, so the next segment starts only AFTER the
+  // transition has completely ended. The clip is verified deterministically
+  // (duration + frame sampling) before being used.
   if ((spec.intro || spec.outro) && results.length >= 2) {
     const whoosh =
       settings.transition_sound_path && fs.existsSync(settings.transition_sound_path)
@@ -181,29 +187,41 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
       cb.onLog({ ts: Date.now(), level: 'warn', message: `Transition whoosh file not found: ${settings.transition_sound_path} — the wipe will be silent.` })
     }
     try {
+      const style = pickTransitionStyle(spec.video_name)
+      cb.onLog(info(`Transition style for this video: ${style.name} (${style.colors.length} layers — same style at both joins).`))
       const wipePath = path.join(jobWorkDir, 'transition_wipe.mp4')
       await buildWipeTransitionClip(
-        { out: wipePath, width: dims.width, height: dims.height, fps: 30, whooshPath: whoosh },
+        { out: wipePath, width: dims.width, height: dims.height, fps: 30, style, whooshPath: whoosh },
         (line) => cb.onLog(info(`ffmpeg: ${line}`))
       )
-      const DIAG: Transition = { type: 'diag_wipe', duration: 0.3 }
+      const verdict = await verifyTransitionClip(
+        { clipPath: wipePath, durationSeconds: WIPE_TRANSITION_SECONDS, workDir: jobWorkDir },
+        () => {}
+      )
+      if (!verdict.ok) {
+        throw new Error(`transition clip failed review — ${verdict.detail}`)
+      }
+      cb.onLog(info(`Transition clip review passed: ${verdict.detail}.`))
+      const joinIn: Transition = { type: style.join, duration: 0.3 }
+      // Hard cut on the incoming side — the next segment starts only after the
+      // transition's final color has filled and held.
       const wipeEntry = () => ({
         finalMp4: wipePath,
         durationSeconds: WIPE_TRANSITION_SECONDS,
-        transitionOut: { ...DIAG },
+        transitionOut: { type: 'none', duration: 0 } as Transition,
         words: null
       })
       if (spec.intro) {
-        results[0].transitionOut = { ...DIAG }
+        results[0].transitionOut = { ...joinIn }
         results.splice(1, 0, wipeEntry())
       }
       if (spec.outro) {
-        results[results.length - 2].transitionOut = { ...DIAG }
+        results[results.length - 2].transitionOut = { ...joinIn }
         results.splice(results.length - 1, 0, wipeEntry())
       }
-      cb.onLog(info(`Inserted diagonal wipe transition(s) at the intro/outro join(s) (${WIPE_TRANSITION_SECONDS}s, whoosh: ${whoosh ? 'yes' : 'none'}).`))
+      cb.onLog(info(`Inserted ${style.name} transition at the intro/outro join(s) (${WIPE_TRANSITION_SECONDS}s, whoosh: ${whoosh ? 'yes' : 'none'}).`))
     } catch (err: any) {
-      cb.onLog({ ts: Date.now(), level: 'warn', message: `Could not build the wipe transition (${err.message}) — falling back to plain fades at the joins.` })
+      cb.onLog({ ts: Date.now(), level: 'warn', message: `Could not build/verify the wipe transition (${err.message}) — falling back to plain fades at the joins.` })
     }
   }
 

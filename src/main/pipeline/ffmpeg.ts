@@ -299,6 +299,10 @@ export function mapTransitionToXfade(t: TransitionType): string | null {
       // Diagonal wipe from the bottom-left corner toward the top-right —
       // used internally for the intro/outro layered wipe transition.
       return 'diagbl'
+    case 'circle_open':
+      // Circle expanding from the center — used internally for the
+      // intro/outro circle-pop transition.
+      return 'circleopen'
     case 'none':
     default:
       return null
@@ -306,31 +310,79 @@ export function mapTransitionToXfade(t: TransitionType): string | null {
 }
 
 // ====================================================================
-// LAYERED DIAGONAL WIPE TRANSITION (intro ↔ scenes ↔ outro)
+// TRANSITION CLIPS (intro ↔ scenes ↔ outro)
 // ====================================================================
-// A short clip of three solid color layers sweeping from the bottom-left
-// corner to the top-right, chained with diagonal xfades so the bands
-// visibly trail one another. The runner inserts it between segments and
-// joins it to both neighbors with the same diagonal wipe, producing:
-// outgoing video → layers sweep in over it → layer-on-layer sweeps →
-// last layer wipes away revealing the incoming video. The whoosh sound
-// (if configured) is baked in as the clip's audio track. Entirely
-// deterministic ffmpeg — identical output every time.
+// A short clip of solid color layers sweeping across the frame — either
+// diagonal bands (bottom-left → top-right) or circles expanding from the
+// center. The runner inserts it between segments:
+//   outgoing video → first layer sweeps in OVER it (xfade join, riding
+//   the outgoing segment's held-frame tail) → layer-on-layer sweeps →
+//   the LAST color fully fills the screen and HOLDS a short beat → HARD
+//   CUT into the incoming segment. The incoming video therefore starts
+//   only AFTER the transition has completely ended (its own content then
+//   animates in ~0.35s later — the "little gap").
+// The whoosh sound (if configured) is baked in as the clip's audio
+// track. Entirely deterministic ffmpeg — identical output every time —
+// and verified after building (duration probe + frame sampling).
 
 export const WIPE_TRANSITION_SECONDS = 0.85
-/** light sky → royal blue → deep navy, matching the reference look */
-const WIPE_COLORS = ['0x6BB6FF', '0x2653F1', '0x0F1D5C'] as const
+/** the last color holds the full frame this long before the hard cut */
+const WIPE_HOLD_SECONDS = 0.12
 
-/** Pure: the video filter graph for the layered wipe. Exported for tests. */
-export function buildWipeFilterGraph(durationSeconds: number): string {
-  const d = durationSeconds
-  const xdur = Math.min(0.3, d * 0.35)
-  const o1 = Math.max(0.05, d * 0.12)
-  const o2 = Math.min(Math.max(o1 + xdur, d * 0.53), d - xdur)
-  return (
-    `[0:v][1:v]xfade=transition=diagbl:duration=${xdur.toFixed(3)}:offset=${o1.toFixed(3)}[vw1];` +
-    `[vw1][2:v]xfade=transition=diagbl:duration=${xdur.toFixed(3)}:offset=${o2.toFixed(3)}[vw]`
-  )
+export interface TransitionStyle {
+  name: string
+  /** internal TransitionType used for the outgoing-side xfade join */
+  join: TransitionType
+  /** ffmpeg xfade transition name used inside the clip */
+  xfade: string
+  /** layer colors, first to last (last one fills and holds) */
+  colors: string[]
+}
+
+export const TRANSITION_STYLES: TransitionStyle[] = [
+  { name: 'diag-blue', join: 'diag_wipe', xfade: 'diagbl', colors: ['0x6BB6FF', '0x2653F1', '0x0F1D5C'] },
+  { name: 'diag-sunset', join: 'diag_wipe', xfade: 'diagbl', colors: ['0xFFC53D', '0xFF6B5E', '0x3A1230'] },
+  { name: 'circle-sun', join: 'circle_open', xfade: 'circleopen', colors: ['0xE3C93F', '0x3D9BF0'] },
+  { name: 'circle-berry', join: 'circle_open', xfade: 'circleopen', colors: ['0xF4F1EA', '0xE85D75'] }
+]
+
+/**
+ * Pick the transition style for a video. Hash-seeded by the video name, so
+ * styles vary "randomly" across videos but one video ALWAYS uses the same
+ * style at both joins (and re-runs are reproducible).
+ */
+export function pickTransitionStyle(seed: string): TransitionStyle {
+  let h = 2166136261
+  const s = `wipe:${seed}`
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return TRANSITION_STYLES[(h >>> 0) % TRANSITION_STYLES.length]
+}
+
+/**
+ * Pure: the video filter graph chaining the style's colors with staggered
+ * xfades, leaving the final color to hold the frame for WIPE_HOLD_SECONDS
+ * before the clip ends. Exported for tests.
+ */
+export function buildWipeFilterGraph(durationSeconds: number, xfadeName: string, colorCount: number): string {
+  const usable = Math.max(0.4, durationSeconds - WIPE_HOLD_SECONDS)
+  const xdur = Math.min(0.3, usable * 0.4)
+  const sweeps = Math.max(1, colorCount - 1)
+  let prev = '0:v'
+  let graph = ''
+  let lastOffset = 0
+  for (let i = 0; i < sweeps; i++) {
+    let off = Math.max(0.05, (usable * (i + 1)) / colorCount - xdur / 2)
+    off = Math.min(off, usable - xdur)
+    off = Math.max(off, lastOffset + 0.05)
+    lastOffset = off
+    const label = i === sweeps - 1 ? 'vw' : `vw${i + 1}`
+    graph += `${i ? ';' : ''}[${prev}][${i + 1}:v]xfade=transition=${xfadeName}:duration=${xdur.toFixed(3)}:offset=${off.toFixed(3)}[${label}]`
+    prev = label
+  }
+  return graph
 }
 
 export async function buildWipeTransitionClip(
@@ -338,6 +390,7 @@ export async function buildWipeTransitionClip(
     out: string
     width: number
     height: number
+    style: TransitionStyle
     fps?: number
     durationSeconds?: number
     /** optional whoosh SFX; silent when absent */
@@ -348,23 +401,25 @@ export async function buildWipeTransitionClip(
   const d = args.durationSeconds ?? WIPE_TRANSITION_SECONDS
   const fps = args.fps ?? 30
   const size = `${args.width}x${args.height}`
+  const colors = args.style.colors
   const inputs: string[] = []
-  for (const c of WIPE_COLORS) {
+  for (const c of colors) {
     inputs.push('-f', 'lavfi', '-i', `color=c=${c}:s=${size}:r=${fps}:d=${d.toFixed(3)}`)
   }
+  const audioIdx = colors.length
   let audioMap: string
-  let filter = buildWipeFilterGraph(d)
+  let filter = buildWipeFilterGraph(d, args.style.xfade, colors.length)
   if (args.whooshPath) {
     inputs.push('-i', args.whooshPath)
     // Trim/pad the whoosh to the clip length with a short fade-out so an abrupt
     // sample end never clicks.
     filter +=
-      `;[3:a]atrim=0:${d.toFixed(3)},aformat=channel_layouts=stereo:sample_rates=48000,` +
+      `;[${audioIdx}:a]atrim=0:${d.toFixed(3)},aformat=channel_layouts=stereo:sample_rates=48000,` +
       `afade=t=out:st=${Math.max(0, d - 0.2).toFixed(3)}:d=0.2,apad=whole_dur=${d.toFixed(3)}[aw]`
     audioMap = '[aw]'
   } else {
     inputs.push('-f', 'lavfi', '-t', d.toFixed(3), '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000')
-    audioMap = '3:a'
+    audioMap = `${audioIdx}:a`
   }
   await runFfmpeg(
     [
@@ -384,6 +439,43 @@ export async function buildWipeTransitionClip(
     ],
     onLog
   )
+}
+
+/** Pure verdict on a transition clip's sampled ink signal. Exported for tests. */
+export function evaluateTransitionSample(global: number[]): { ok: boolean; detail: string } {
+  if (global.length < 4) return { ok: false, detail: `only ${global.length} frames sampled` }
+  const finalInk = global[global.length - 1]
+  const midMax = Math.max(...global.slice(1, -1))
+  const ok = finalInk <= 0.02 && midMax >= 0.04
+  return {
+    ok,
+    detail: `final frame ink ${finalInk.toFixed(3)} (solid requires ≤0.02), sweep visibility ${midMax.toFixed(3)} (requires ≥0.04)`
+  }
+}
+
+/**
+ * Deterministic REVIEW of the built transition clip: the duration must match,
+ * the sweeps must actually be visible mid-clip, and the final frame must be a
+ * SOLID fill (so the hard cut into the next segment happens only after the
+ * transition has fully completed). No AI involved.
+ */
+export async function verifyTransitionClip(
+  args: { clipPath: string; durationSeconds: number; workDir: string },
+  onLog?: (l: string) => void
+): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const dur = await probeDurationSeconds(args.clipPath)
+    if (Math.abs(dur - args.durationSeconds) > 0.2) {
+      return { ok: false, detail: `clip duration ${dur.toFixed(2)}s differs from expected ${args.durationSeconds.toFixed(2)}s` }
+    }
+    const sample = await sampleInkFractions(
+      { videoIn: args.clipPath, count: 8, durationSeconds: args.durationSeconds, workDir: args.workDir },
+      onLog
+    )
+    return evaluateTransitionSample(sample.global)
+  } catch (err: any) {
+    return { ok: false, detail: `verification failed to run: ${err?.message ?? err}` }
+  }
 }
 
 export function ensureDir(dir: string) {

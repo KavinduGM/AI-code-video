@@ -28,6 +28,7 @@ export type TransitionType =
   | 'wipe_up'
   | 'wipe_down'
   | 'diag_wipe' // internal: layered diagonal wipe used at intro/outro joins
+  | 'circle_open' // internal: expanding-circle wipe used at intro/outro joins
 
 export interface Transition {
   type: TransitionType
