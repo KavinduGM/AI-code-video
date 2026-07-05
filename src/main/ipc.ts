@@ -559,7 +559,10 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
         const failed: string[] = []
 
         for (let i = 0; i < use.length; i++) {
-          const videoName = factoryVideoName(examName, i)
+          // Set number baked into the name/filename so the user can see at a
+          // glance which template set each short used (NJ_RE_Exam_01_Set1…).
+          const tset = uploadedSets.length ? uploadedSets[i % uploadedSets.length] : undefined
+          const videoName = tset ? `${factoryVideoName(examName, i)}_Set${tset}` : factoryVideoName(examName, i)
           const target = {
             examName,
             channel: args.channel,
@@ -567,7 +570,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
             outputFolder,
             voiceProfile: args.voice_profile,
             backgroundMusic: music.length ? music[i % music.length] : undefined,
-            templateSet: uploadedSets.length ? uploadedSets[i % uploadedSets.length] : undefined,
+            templateSet: tset,
             paletteIndex: i,
             conceptText: use[i]
           }
