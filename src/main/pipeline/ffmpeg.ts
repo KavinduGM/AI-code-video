@@ -331,8 +331,8 @@ export function mapTransitionToXfade(t: TransitionType): string | null {
 // and verified after building (duration probe + frame sampling).
 
 export const WIPE_TRANSITION_SECONDS = 0.85
-/** the last color holds the full frame this long before the hard cut */
-const WIPE_HOLD_SECONDS = 0.12
+/** tiny settle after full cover — the cut follows almost immediately */
+const WIPE_HOLD_SECONDS = 0.06
 
 export interface TransitionStyle {
   name: string
@@ -379,16 +379,21 @@ export function pickTransitionStyle(seed: string): TransitionStyle {
  */
 export function buildWipeFilterGraph(durationSeconds: number, xfadeName: string, colorCount: number): string {
   const usable = Math.max(0.4, durationSeconds - WIPE_HOLD_SECONDS)
-  const xdur = Math.min(0.3, usable * 0.4)
   const sweeps = Math.max(1, colorCount - 1)
-  let prev = '0:v'
+  // Cover completes as LATE as possible so the final color never dwells: the
+  // last sweep ends exactly at `usable` (clip end minus a 0.06s settle), and
+  // earlier sweeps stack back-to-back before it. A single-sweep (2-color)
+  // style stretches its sweep from just after the entry join to the end —
+  // one continuous expand, no plate of solid color sitting on screen.
+  const xdur = sweeps === 1 ? Math.max(0.3, usable - 0.25) : Math.min(0.3, usable * 0.4)
   let graph = ''
-  let lastOffset = 0
+  let prev = '0:v'
+  let prevOff = -1
   for (let i = 0; i < sweeps; i++) {
-    let off = Math.max(0.05, (usable * (i + 1)) / colorCount - xdur / 2)
+    let off = usable - xdur - (sweeps - 1 - i) * (xdur + 0.03)
+    off = Math.max(off, 0.08, prevOff + 0.05)
     off = Math.min(off, usable - xdur)
-    off = Math.max(off, lastOffset + 0.05)
-    lastOffset = off
+    prevOff = off
     const label = i === sweeps - 1 ? 'vw' : `vw${i + 1}`
     graph += `${i ? ';' : ''}[${prev}][${i + 1}:v]xfade=transition=${xfadeName}:duration=${xdur.toFixed(3)}:offset=${off.toFixed(3)}[${label}]`
     prev = label
@@ -455,10 +460,50 @@ export async function buildWipeTransitionClip(
   )
 }
 
+/**
+ * Ink fraction of the clip's TRUE final frame (seeked from the end), using
+ * the same dominant-luma background logic as sampleInkFractions. Returns
+ * null when the frame can't be read.
+ */
+async function measureFinalFrameInk(videoIn: string, workDir: string): Promise<number | null> {
+  const W = 64
+  const H = 114
+  const raw = path.join(workDir, `final-${randomUUID()}.raw`)
+  try {
+    await runFfmpeg([
+      '-y',
+      '-sseof', '-0.07',
+      '-i', videoIn,
+      '-frames:v', '1',
+      '-vf', `scale=${W}:${H},format=gray`,
+      '-f', 'rawvideo',
+      '-pix_fmt', 'gray',
+      raw
+    ])
+    const buf = await fs.promises.readFile(raw)
+    if (buf.length < W * H) return null
+    const hist = new Uint32Array(32)
+    for (let p = 0; p < W * H; p++) hist[buf[p] >> 3]++
+    let bgBin = 0
+    for (let b = 1; b < 32; b++) if (hist[b] > hist[bgBin]) bgBin = b
+    const bg = bgBin * 8 + 4
+    let ink = 0
+    for (let p = 0; p < W * H; p++) if (Math.abs(buf[p] - bg) > 48) ink++
+    return ink / (W * H)
+  } catch {
+    return null
+  } finally {
+    fs.promises.rm(raw, { force: true }).catch(() => {})
+  }
+}
+
 /** Pure verdict on a transition clip's sampled ink signal. Exported for tests. */
-export function evaluateTransitionSample(global: number[]): { ok: boolean; detail: string } {
+export function evaluateTransitionSample(global: number[], finalInkOverride?: number): { ok: boolean; detail: string } {
   if (global.length < 4) return { ok: false, detail: `only ${global.length} frames sampled` }
-  const finalInk = global[global.length - 1]
+  // The sweep now runs almost to the clip end, so the fps-sampled "last"
+  // frame may still be mid-sweep — the caller passes the TRUE final frame's
+  // ink when it has one.
+  const finalInk = finalInkOverride ?? global[global.length - 1]
   const midMax = Math.max(...global.slice(1, -1))
   const ok = finalInk <= 0.02 && midMax >= 0.04
   return {
@@ -486,7 +531,8 @@ export async function verifyTransitionClip(
       { videoIn: args.clipPath, count: 8, durationSeconds: args.durationSeconds, workDir: args.workDir },
       onLog
     )
-    return evaluateTransitionSample(sample.global)
+    const finalInk = await measureFinalFrameInk(args.clipPath, args.workDir)
+    return evaluateTransitionSample(sample.global, finalInk ?? undefined)
   } catch (err: any) {
     return { ok: false, detail: `verification failed to run: ${err?.message ?? err}` }
   }
