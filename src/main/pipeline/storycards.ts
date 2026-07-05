@@ -591,9 +591,10 @@ function arrowSvgStyled(style: ArrowStyle, color: string, px: number, drawDelay 
   <path class="ahead" style="animation-delay:${d2}s" d="M14 262 L50 330 L86 262" stroke="${color}" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>`
     case 'curved':
-      return `<svg viewBox="0 0 160 200" width="${Math.round(W * 1.1)}" aria-hidden="true">
-  <path class="adraw" style="animation-delay:${d1}s" d="M118 10 q30 60 -8 106 q-24 30 -62 34" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round"/>
-  <path class="ahead" style="animation-delay:${d2}s" d="M78 122 L44 152 L86 168" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      // Long sweeping curve (~1.55× the original) per the storyboard scale.
+      return `<svg viewBox="0 0 170 320" width="${Math.round(W * 1.1)}" aria-hidden="true">
+  <path class="adraw" style="animation-delay:${d1}s" d="M126 12 q34 80 -8 158 q-26 48 -72 62" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round"/>
+  <path class="ahead" style="animation-delay:${d2}s" d="M84 200 L42 238 L90 256" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`
   }
 }
@@ -821,8 +822,8 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   ${underline2Css}
   .w{display:inline-block;opacity:0;animation:wIn .38s cubic-bezier(.2,.7,.3,1) both;animation-iteration-count:1}
   .bgwrap{position:absolute;inset:0;overflow:hidden}
-  .bgimg{width:1080px;height:1920px;object-fit:cover;animation:drift1 1.5s ease-in-out infinite}
-  .drift2{animation:drift2 1.7s ease-in-out infinite}
+  .bgimg{width:1080px;height:1920px;object-fit:cover;animation:drift1 1.9s ease-in-out infinite}
+  .drift2{animation:drift2 2.1s ease-in-out infinite}
   .bgsc1{animation:bgOut .35s ease-in both;animation-iteration-count:1}
   .bgsc2{opacity:0;animation:bgIn .35s ease-out both;animation-iteration-count:1}
   .heroA{position:absolute;left:50%;transform:translateX(-50%)}
