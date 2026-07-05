@@ -123,6 +123,16 @@ export interface CardLayout {
   badgeFontPx?: number
   /** extra left padding on the card (px) when the storyboard insets content past the safe edge */
   padLeft?: number
+  /** absolute text-block top (px, safe-relative; may be negative to sit above the safe line) — replaces flow positioning */
+  txtTop?: number
+  /** outro-2 CTA: absolute pill top (px, safe-relative) */
+  pillTop?: number
+  /** outro-2 CTA: pill font size (px) when the design uses an oversized pill */
+  pillFontPx?: number
+  /** outro-2 CTA: absolute arrow top (px, safe-relative) */
+  arrowTop?: number
+  /** outro-2 CTA: exact arrow height (px) — replaces the flow-computed fit */
+  arrowH?: number
   hero?: HeroLayout
 }
 
@@ -167,10 +177,49 @@ export const STORY_SETS: StorySet[] = [
     arrowColor: '#1F3A5F',
     pill: 'light',
     assets: { intro1: 'house', intro2: 'key', outro1: 'bulb' },
-    outro2Asset: 'jeep',
     assetMode: 'image',
     svgFallbackOk: true,
-    imageSlots: STD_SLOTS
+    imageSlots: STD_SLOTS,
+    // Measured from the exact 1080×1920 Set-1 design frames (backdrop-first;
+    // hero entries are legacy-mode only). Safe-relative coordinates.
+    // intro1: badge ~y160 font≈96, right-aligned title ≈160px from y≈390 (flow);
+    // intro2: LEFT-aligned text starting above the safe line (abs y≈106);
+    // outro1: left text at abs y≈192; outro2: centered text abs y≈205,
+    // pill abs y≈939 font≈84, block arrow abs y≈1210 height≈445.
+    layouts: {
+      intro1: {
+        padTop: 0,
+        fontPx: 160,
+        badgeFontPx: 96,
+        hero: { w: 950, h: 660, x: 'center', top: 1097 }
+      },
+      intro2: {
+        padTop: 0,
+        txtTop: -54,
+        textAlign: 'left',
+        padLeft: 15,
+        fontPx: 160,
+        hero: { w: 460, h: 860, x: 'center', top: 670 }
+      },
+      outro1: {
+        padTop: 0,
+        txtTop: 32,
+        textAlign: 'left',
+        padLeft: 15,
+        fontPx: 160,
+        hero: { w: 640, h: 890, x: 'center', top: 695 }
+      },
+      outro2: {
+        padTop: 0,
+        txtTop: 45,
+        textAlign: 'center',
+        fontPx: 148,
+        pillTop: 779,
+        pillFontPx: 84,
+        arrowTop: 1050,
+        arrowH: 445
+      }
+    }
   },
   {
     id: 2,
@@ -616,17 +665,19 @@ function arrowSvgStyled(style: ArrowStyle, color: string, heightPx: number, draw
 const BELL = (fill: string, size: number) =>
   `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="${fill}" aria-hidden="true"><path d="M12 22a2.6 2.6 0 0 0 2.55-2.1h-5.1A2.6 2.6 0 0 0 12 22Zm7.3-5.2-1.7-1.75V10.9a5.7 5.7 0 0 0-4.2-5.5V4.7a1.4 1.4 0 0 0-2.8 0v.7a5.7 5.7 0 0 0-4.2 5.5v4.15L4.7 16.8A1 1 0 0 0 5.45 18.5h13.1a1 1 0 0 0 .75-1.7Z"/></svg>`
 
-function pillHtml(set: StorySet, pulseDelay: number): string {
+function pillHtml(set: StorySet, pulseDelay: number, fontPx?: number): string {
   const d = pulseDelay.toFixed(2)
+  const size = fontPx ? `padding:${Math.round(fontPx * 0.42)}px ${Math.round(fontPx * 1.0)}px;` : ''
+  const labelSize = fontPx ? ` style="font-size:${fontPx}px"` : ''
   switch (set.pill) {
     case 'light':
-      return `<div class="sub sub-light" style="animation-delay:${d}s"><span class="sub-label">Subscribe</span></div>`
+      return `<div class="sub sub-light" style="${size}animation-delay:${d}s"><span class="sub-label"${labelSize}>Subscribe</span></div>`
     case 'dark':
-      return `<div class="sub sub-dark" style="animation-delay:${d}s"><span class="sub-label">SUBSCRIBE</span><span class="sub-bell">${BELL('#101010', 30)}</span></div>`
+      return `<div class="sub sub-dark" style="${size}animation-delay:${d}s"><span class="sub-label"${labelSize}>SUBSCRIBE</span><span class="sub-bell">${BELL('#101010', 30)}</span></div>`
     case 'outline':
-      return `<div class="sub sub-outline" style="animation-delay:${d}s"><span class="sub-label">SUBSCRIBE</span>${BELL(set.ink, 34)}</div>`
+      return `<div class="sub sub-outline" style="${size}animation-delay:${d}s"><span class="sub-label"${labelSize}>SUBSCRIBE</span>${BELL(set.ink, 34)}</div>`
     case 'subscribed':
-      return `<div class="sub sub-light" style="animation-delay:${d}s">${BELL('#101010', 32)}<span class="sub-label">Subscribed</span><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#101010" stroke-width="3" aria-hidden="true"><path d="M5 9 L12 16 L19 9"/></svg></div>`
+      return `<div class="sub sub-light" style="${size}animation-delay:${d}s">${BELL('#101010', 32)}<span class="sub-label"${labelSize}>Subscribed</span><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#101010" stroke-width="3" aria-hidden="true"><path d="M5 9 L12 16 L19 9"/></svg></div>`
   }
 }
 
@@ -817,11 +868,20 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   const pillH = 78
   const chrome = 44 + ctaImgH + 30 + pillH + 44 + 30 + 24 // scene gaps, cta margins, bob travel
   const arrowH = Math.round(Math.min(545, Math.max(260, SAFE_H - l2cta.padTop - textBlockH - chrome)))
+  // Design-measured overrides: absolute pill/arrow positions and an exact
+  // arrow height beat the flow-computed fit (the svg height arg compensates
+  // the per-style render factor so layout.arrowH is the TRUE on-screen height).
+  const arrowHFinal = l2cta.arrowH ?? arrowH
+  const arrowHeightArg =
+    set.arrowStyle === 'block' ? arrowHFinal / 0.52 : set.arrowStyle === 'thin' ? arrowHFinal / 0.75 : arrowHFinal
+  const absCenter = 'position:absolute;left:0;right:0;display:flex;justify-content:center;margin-top:0;'
+  const pillPosCss = l2cta.pillTop !== undefined ? `${absCenter}top:${l2cta.pillTop}px;` : ''
+  const arrowPosCss = l2cta.arrowTop !== undefined ? `${absCenter}top:${l2cta.arrowTop}px;` : ''
   const ctaHtml = spec.subscribe
     ? `${ctaImgHtml}
-      <div class="cta-pop" style="animation-delay:${pillDelay.toFixed(2)}s">${pillHtml(set, pulseDelay)}</div>
-      <div class="arrow-pop" style="animation-delay:${arrowDelay.toFixed(2)}s">
-        <div class="bob" style="animation-delay:${bobDelay.toFixed(2)}s">${arrowSvgStyled(set.arrowStyle, set.arrowColor, arrowH, arrowDelay + 0.1)}</div>
+      <div class="cta-pop" style="${pillPosCss}animation-delay:${pillDelay.toFixed(2)}s">${pillHtml(set, pulseDelay, l2cta.pillFontPx)}</div>
+      <div class="arrow-pop" style="${arrowPosCss}animation-delay:${arrowDelay.toFixed(2)}s">
+        <div class="bob" style="animation-delay:${bobDelay.toFixed(2)}s">${arrowSvgStyled(set.arrowStyle, set.arrowColor, arrowHeightArg, arrowDelay + 0.1)}</div>
       </div>`
     : ''
 
@@ -920,11 +980,11 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   <div class="safe">
     <div class="scene sc1" style="${sceneStyle(card1)}">
       ${badgeHtml}
-      <div class="txt" style="font-size:${layoutFor(card1).fontPx ? effectiveFontPx(layoutFor(card1).fontPx!, spec.scene1) : textSizeFor(spec.scene1)}px">${s1.html}</div>
+      <div class="txt" style="font-size:${layoutFor(card1).fontPx ? effectiveFontPx(layoutFor(card1).fontPx!, spec.scene1) : textSizeFor(spec.scene1)}px${layoutFor(card1).txtTop !== undefined ? `;position:absolute;top:${layoutFor(card1).txtTop}px;left:${layoutFor(card1).padLeft ?? 0}px;right:0;margin-top:0` : ''}">${s1.html}</div>
       ${hero1Abs}
     </div>
     <div class="scene sc2" style="${sceneStyle(card2)}">
-      <div class="txt" style="font-size:${layoutFor(card2).fontPx ? effectiveFontPx(layoutFor(card2).fontPx!, spec.scene2) : textSizeFor(spec.scene2)}px;margin-top:60px">${s2.html}</div>
+      <div class="txt" style="font-size:${layoutFor(card2).fontPx ? effectiveFontPx(layoutFor(card2).fontPx!, spec.scene2) : textSizeFor(spec.scene2)}px;margin-top:60px${layoutFor(card2).txtTop !== undefined ? `;position:absolute;top:${layoutFor(card2).txtTop}px;left:${layoutFor(card2).padLeft ?? 0}px;right:0;margin-top:0` : ''}">${s2.html}</div>
       ${spec.kind === 'intro' ? hero2Html : ctaHtml}
     </div>
   </div>
