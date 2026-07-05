@@ -81,8 +81,8 @@ export interface StorySet {
 export type CardKey = 'intro1' | 'intro2' | 'outro1' | 'outro2'
 
 export interface HeroLayout {
-  /** slot box size in px */
-  w: number
+  /** slot box size in px (box mode; w is ignored in fit:'height' mode) */
+  w?: number
   h: number
   /** horizontal anchor: centered, or bleeding off the left/right frame edge */
   x: 'center' | 'left-bleed' | 'right-bleed'
@@ -91,6 +91,17 @@ export interface HeroLayout {
   /** vertical anchor (px relative to the safe area) — set exactly one */
   bottom?: number
   top?: number
+  /**
+   * fit:'height' — the design-exact mode for cut-off photos: the image is
+   * scaled to EXACTLY h px tall (width follows the PNG's own proportions)
+   * and one visible edge is PINNED at the measured design position via
+   * left/right (px from the frame edge, may be negative). The far side
+   * runs long and is clipped by the frame, exactly like the storyboard's
+   * cut arm/sleeve — so any PNG crop renders at design scale and position.
+   */
+  fit?: 'height'
+  left?: number
+  right?: number
 }
 
 export interface CardLayout {
@@ -208,13 +219,13 @@ export const STORY_SETS: StorySet[] = [
         padLeft: 16,
         fontPx: 130,
         badgeFontPx: 92, // 100 measured, but 92 guarantees ONE line (nowrap) inside the safe width
-        hero: { w: 940, h: 560, x: 'right-bleed', bleed: 20, top: 1055 }
+        hero: { h: 560, x: 'right-bleed', fit: 'height', left: 130, top: 1055 }
       },
       intro2: {
         padTop: 990,
         textAlign: 'right',
         fontPx: 138,
-        hero: { w: 1045, h: 700, x: 'left-bleed', bleed: 20, top: 87 }
+        hero: { h: 700, x: 'left-bleed', fit: 'height', right: 150, top: 87 }
       },
       outro1: { padTop: 20, hero: { w: 620, h: 750, x: 'center', bottom: -20 } },
       outro2: { padTop: 430, textAlign: 'center' }
@@ -690,23 +701,30 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   const layoutFor = (card: CardKey): CardLayout => set.layouts?.[card] ?? DEFAULT_CARD_LAYOUTS[card]
   const heroFor = (slot: 'intro1' | 'intro2' | 'outro1', box: HeroLayout): string => {
     const href = spec.images?.[slot]
-    // Push the image toward the bleeding edge inside its slot box, so the cut
-    // side (arm/sleeve) actually touches the frame edge like the storyboard —
-    // object-fit would otherwise center it and leave a gap.
+    if (!href) return assetSvg(set.assets[slot], Math.round(Math.min(box.w ?? box.h, box.h) * 0.95))
+    if (box.fit === 'height') {
+      // Design-exact: height locked to the measured design, width follows the
+      // PNG, the pinned edge sits at the design position, the far side clips.
+      return `<img src="${href}" alt="" style="height:${box.h}px;width:auto;display:block"/>`
+    }
+    // Box mode: contain inside the slot, pushed toward the bleeding edge so
+    // the cut side (arm/sleeve) touches the frame edge like the storyboard.
     const justify = box.x === 'right-bleed' ? 'flex-end' : box.x === 'left-bleed' ? 'flex-start' : 'center'
-    return href
-      ? `<div class="imgslot" style="width:${box.w}px;height:${box.h}px;justify-content:${justify}"><img src="${href}" alt=""/></div>`
-      : assetSvg(set.assets[slot], Math.round(Math.min(box.w, box.h) * 0.95))
+    return `<div class="imgslot" style="width:${box.w}px;height:${box.h}px;justify-content:${justify}"><img src="${href}" alt=""/></div>`
   }
   const heroAbs = (slot: 'intro1' | 'intro2' | 'outro1', delay: number): string => {
     const box = layoutFor(slot).hero
     if (!box) return ''
     const xCss =
-      box.x === 'left-bleed'
-        ? `left:${-(box.bleed ?? 120)}px`
-        : box.x === 'right-bleed'
-          ? `right:${-(box.bleed ?? 120)}px`
-          : 'left:50%;transform:translateX(-50%)'
+      box.left !== undefined
+        ? `left:${box.left}px`
+        : box.right !== undefined
+          ? `right:${box.right}px`
+          : box.x === 'left-bleed'
+            ? `left:${-(box.bleed ?? 120)}px`
+            : box.x === 'right-bleed'
+              ? `right:${-(box.bleed ?? 120)}px`
+              : 'left:50%;transform:translateX(-50%)'
     const yCss = box.top !== undefined ? `top:${box.top}px` : `bottom:${box.bottom ?? 0}px`
     return `<div class="heroA" style="${xCss};${yCss}"><div class="pop" style="animation-delay:${delay.toFixed(2)}s"><div class="float" style="animation-delay:${(delay + 0.8).toFixed(2)}s">${heroFor(slot, box)}</div></div></div>`
   }
