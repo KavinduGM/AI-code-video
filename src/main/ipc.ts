@@ -534,6 +534,27 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
         }
 
         const outputFolder = settings.default_output_folder || 'C:\\VideoTool\\out'
+
+        // Template rotation: short 1 → set 1, short 2 → set 2 … in ORDER,
+        // restarting per document — but only across sets whose design files
+        // are actually uploaded (a forced set with missing files would lose
+        // its design). With all 10 uploaded this is the exact 1..10 mapping.
+        const uploadedSets = STORY_SETS.filter((st) => {
+          const dir = path.join(getStoragePaths().userData, 'template-assets', `set-${st.id}`)
+          const slots = st.imageSlots!
+          const req: ('intro1' | 'intro2' | 'outro1')[] = ['intro1', 'intro2', 'outro1']
+          const heroes = req.every((k) => fs.existsSync(path.join(dir, slots[k])))
+          const bgs = req.every((k) => fs.existsSync(path.join(dir, BG_SLOTS[k])))
+          return heroes || bgs
+        })
+          .map((st) => st.id)
+          .sort((a, b) => a - b)
+        if (uploadedSets.length === 0) {
+          send('Factory: no template sets have uploaded design files yet — templates will auto-pick fallbacks.')
+        } else {
+          send(`Factory: rotating templates across uploaded sets [${uploadedSets.join(', ')}] in order.`)
+        }
+
         const queued: string[] = []
         const failed: string[] = []
 
@@ -546,6 +567,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
             outputFolder,
             voiceProfile: args.voice_profile,
             backgroundMusic: music.length ? music[i % music.length] : undefined,
+            templateSet: uploadedSets.length ? uploadedSets[i % uploadedSets.length] : undefined,
             paletteIndex: i,
             conceptText: use[i]
           }
@@ -554,7 +576,8 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
             channel: args.channel,
             examName,
             voiceProfile: args.voice_profile,
-            backgroundMusic: target.backgroundMusic
+            backgroundMusic: target.backgroundMusic,
+            templateSet: target.templateSet
           }
           const prompt = buildScriptPrompt(target)
           let yaml = ''

@@ -86,6 +86,7 @@ export interface GenerationTarget {
   outputFolder: string
   voiceProfile: string
   backgroundMusic?: string // saved music profile name for this short
+  templateSet?: number // 1..10 — shorts rotate through the template sets in order
   paletteIndex: number
   conceptText: string
 }
@@ -106,6 +107,7 @@ EXACT VALUES the script MUST use verbatim:
 - voice_profile: ${t.voiceProfile}
 - voice_speed: 1.0
 ${t.backgroundMusic ? `- background_music: "${t.backgroundMusic}"` : ''}
+${t.templateSet ? `- template_set: ${t.templateSet}` : ''}
 - channel: "${t.channel}"
 - colors (exactly these 5, in this order):
   - "${p.bg}"   # ${p.bgName} — background
@@ -203,6 +205,7 @@ export interface FactoryExpectations {
   examName: string
   voiceProfile: string
   backgroundMusic?: string
+  templateSet?: number
 }
 
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length
@@ -224,6 +227,8 @@ export function validateGeneratedScript(yaml: string, expect: FactoryExpectation
   if (spec.voice_profile !== expect.voiceProfile) errors.push(`voice_profile must be "${expect.voiceProfile}"`)
   if (expect.backgroundMusic && spec.background_music !== expect.backgroundMusic)
     errors.push(`background_music must be "${expect.backgroundMusic}"`)
+  if (expect.templateSet && spec.template_set !== expect.templateSet)
+    errors.push(`template_set must be ${expect.templateSet}`)
 
   // Intro: exam name FIRST, 2 short scene texts.
   if (!spec.intro) errors.push('intro section is missing')
