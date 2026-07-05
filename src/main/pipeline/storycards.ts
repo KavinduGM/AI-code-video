@@ -575,24 +575,24 @@ function assetSvg(id: AssetId, px: number): string {
  * curving, pointing, stop". After the draw, the idle bob keeps it alive
  * until the voice ends. Delays are absolute (seconds into the card).
  */
-function arrowSvgStyled(style: ArrowStyle, color: string, px: number, drawDelay = 0): string {
-  const W = Math.round(px * 0.5)
+function arrowSvgStyled(style: ArrowStyle, color: string, heightPx: number, drawDelay = 0): string {
+  const H = Math.round(heightPx)
   const d1 = drawDelay.toFixed(2)
   const d2 = (drawDelay + 0.7).toFixed(2)
   switch (style) {
     case 'block':
-      return `<svg viewBox="0 0 120 260" width="${W}" aria-hidden="true">
+      return `<svg viewBox="0 0 120 260" height="${Math.round(H * 0.52)}" aria-hidden="true">
   <path class="adraw" style="animation-delay:${d1}s" d="M60 8 L60 182" stroke="${color}" stroke-width="26" stroke-linecap="round" fill="none"/>
   <polygon class="ahead" style="animation-delay:${d2}s" points="18,174 102,174 60,248" fill="${color}"/>
 </svg>`
     case 'thin':
-      return `<svg viewBox="0 0 100 340" width="${Math.round(W * 0.46)}" aria-hidden="true">
+      return `<svg viewBox="0 0 100 340" height="${Math.round(H * 0.75)}" aria-hidden="true">
   <path class="adraw" style="animation-delay:${d1}s" d="M50 6 L50 306" stroke="${color}" stroke-width="11" stroke-linecap="round" fill="none"/>
   <path class="ahead" style="animation-delay:${d2}s" d="M14 262 L50 330 L86 262" stroke="${color}" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>`
     case 'curved':
       // Long sweeping curve (~1.55× the original) per the storyboard scale.
-      return `<svg viewBox="0 0 170 320" width="${Math.round(W * 1.1)}" aria-hidden="true">
+      return `<svg viewBox="0 0 170 320" height="${H}" aria-hidden="true">
   <path class="adraw" style="animation-delay:${d1}s" d="M126 12 q34 80 -8 158 q-26 48 -72 62" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round"/>
   <path class="ahead" style="animation-delay:${d2}s" d="M84 200 L42 238 L90 256" stroke="${color}" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`
@@ -789,11 +789,25 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   const ctaImgHtml = spec.subscribe && ctaImgInner
     ? `<div class="cta-img pop" style="animation-delay:${ctaImgDelay.toFixed(2)}s">${ctaImgInner}</div>`
     : ''
+  // CROP-PROOF ARROW: the CTA stack is fully system-authored, so compute the
+  // vertical space left inside the safe area and size the arrow to fit it
+  // EXACTLY. Long CTA text ⇒ shorter arrow; short text ⇒ full-length arrow.
+  // Text height uses a conservative wrap estimate (0.55em avg char width),
+  // so the arrow can only ever err SMALLER — cropping is impossible.
+  const SAFE_H = 1380 // 1920 − 160 top − 380 caption margin
+  const l2cta = layoutFor(card2)
+  const font2 = l2cta.fontPx ? effectiveFontPx(l2cta.fontPx, spec.scene2) : textSizeFor(spec.scene2)
+  const estLines = Math.max(1, Math.ceil((spec.scene2.length * font2 * 0.55) / 960))
+  const textBlockH = 60 + estLines * font2 * 1.2 // margin-top + wrapped lines
+  const ctaImgH = spec.images?.outro2 ? 320 + 26 : set.outro2Asset ? 170 + 26 : 0
+  const pillH = 78
+  const chrome = 44 + ctaImgH + 30 + pillH + 44 + 30 + 24 // scene gaps, cta margins, bob travel
+  const arrowH = Math.round(Math.min(545, Math.max(260, SAFE_H - l2cta.padTop - textBlockH - chrome)))
   const ctaHtml = spec.subscribe
     ? `${ctaImgHtml}
       <div class="cta-pop" style="animation-delay:${pillDelay.toFixed(2)}s">${pillHtml(set, pulseDelay)}</div>
       <div class="arrow-pop" style="animation-delay:${arrowDelay.toFixed(2)}s">
-        <div class="bob" style="animation-delay:${bobDelay.toFixed(2)}s">${arrowSvgStyled(set.arrowStyle, set.arrowColor, 520, arrowDelay + 0.1)}</div>
+        <div class="bob" style="animation-delay:${bobDelay.toFixed(2)}s">${arrowSvgStyled(set.arrowStyle, set.arrowColor, arrowH, arrowDelay + 0.1)}</div>
       </div>`
     : ''
 
