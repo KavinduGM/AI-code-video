@@ -520,7 +520,8 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
         if (concepts.length === 0) {
           return finish(false, 'No concept sections found — separate concepts with lines containing just "---".', 0, [])
         }
-        const MAX_CONCEPTS = 12
+        // Production model: 10 shorts per exam — one per template set (1..10).
+        const MAX_CONCEPTS = 10
         const use = concepts.slice(0, MAX_CONCEPTS)
         if (concepts.length > MAX_CONCEPTS) {
           send(`Factory: document has ${concepts.length} concepts — generating the first ${MAX_CONCEPTS}.`)
