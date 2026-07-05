@@ -93,7 +93,7 @@ export interface AppSettings {
   elevenlabs_api_key: string
   default_output_folder: string
   hyperframes_command: string // e.g. "npx hyperframes" or absolute path
-  background_music_path: string // global default music for intro/outro (5% volume)
+  background_music_path: string // global default music for intro/outro (10% volume)
   transition_sound_path: string // whoosh SFX for the intro/outro wipe transition
 }
 

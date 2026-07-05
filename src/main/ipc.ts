@@ -287,7 +287,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
         )
         const durationSeconds = await probeDurationSeconds(audioPath)
 
-        // 2) Background music at 5% (script name -> global default), best-effort.
+        // 2) Background music at 10% (script name -> global default), best-effort.
         let audioForMux = audioPath
         const musicPath = spec.background_music
           ? findMusicByName(spec.background_music)?.path
@@ -296,7 +296,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
           try {
             send(`Preview ${args.part}: mixing background music at 5%…`)
             const mixed = path.join(previewDir, 'audio-mixed.mp3')
-            await mixVoiceWithMusic({ voiceIn: audioPath, musicIn: musicPath, out: mixed, musicVolume: 0.05, durationSeconds })
+            await mixVoiceWithMusic({ voiceIn: audioPath, musicIn: musicPath, out: mixed, musicVolume: 0.1, durationSeconds })
             audioForMux = mixed
           } catch {
             /* keep plain voiceover */
