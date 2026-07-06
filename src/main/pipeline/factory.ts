@@ -32,7 +32,7 @@ export function splitConcepts(text: string): string[] {
 }
 
 // ---------------------------------------------------------------------
-// Style rotation: palettes vary across the 10 shorts of one exam
+// Style rotation: palettes vary across the shorts of one exam (wraps via %)
 // ---------------------------------------------------------------------
 
 export const FACTORY_PALETTES: { bg: string; accent: string; emph: string; warn: string; body: string; bgName: string }[] = [

@@ -523,8 +523,10 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
         if (concepts.length === 0) {
           return finish(false, 'No concept sections found — separate concepts with lines containing just "---".', 0, [])
         }
-        // Production model: 10 shorts per exam — one per template set (1..10).
-        const MAX_CONCEPTS = 10
+        // Production model: 11 shorts per exam — 10 map one-per-template-set
+        // (1..10), the 11th is a SAFETY BACKUP (rotation wraps: it reuses set 1's
+        // design) so a botched render still leaves a spare to publish.
+        const MAX_CONCEPTS = 11
         const use = concepts.slice(0, MAX_CONCEPTS)
         if (concepts.length > MAX_CONCEPTS) {
           send(`Factory: document has ${concepts.length} concepts — generating the first ${MAX_CONCEPTS}.`)
