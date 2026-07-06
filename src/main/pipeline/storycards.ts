@@ -74,6 +74,8 @@ export interface StorySet {
   hlColor?: string
   /** italicise highlighted words */
   hlItalic?: boolean
+  /** scene-text font weight (default 900) — for sets whose body copy is lighter */
+  textWeight?: number
   /** underline treatment on the intro scene-2 text (set 5 storyboard) */
   underline2?: boolean
   /** code-drawn fallback heroes, used for any slot whose PNG is not uploaded */
@@ -960,6 +962,55 @@ const OA_GUIDES_SETS: StorySet[] = [
         arrowH: 340
       }
     }
+  },
+  {
+    id: 4,
+    name: 'oaguides-blob',
+    bg: '#F5D33F',
+    ink: '#111111',
+    font: 'Poppins',
+    weights: '500;800',
+    textWeight: 500,
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'center',
+    badge: { bg: '#9BC4E8', ink: '#111111', spaced: false },
+    arrowStyle: 'block',
+    arrowColor: '#111111',
+    pill: 'subscribed',
+    pillColor: '#C8C8C8',
+    assets: { intro1: 'key', intro2: 'magnifier', outro1: 'handshake' },
+    assetMode: 'image',
+    imageSlots: STD_SLOTS,
+    layouts: {
+      // Blue exam-badge top-left; long LEFT-aligned hook (blob art baked into
+      // the backdrop). Different alignment per card is fine (per-card textAlign).
+      intro1: {
+        padTop: 0,
+        txtTop: 400,
+        fontPx: 102,
+        fontBaseChars: 43,
+        textAlign: 'left',
+        badgeTop: 0,
+        badgeFontPx: 68,
+        badgeAlign: 'left'
+      },
+      intro2: { padTop: 0, txtTop: 150, fontPx: 130, fontBaseChars: 16, textAlign: 'center' },
+      outro1: { padTop: 0, txtTop: 180, fontPx: 120, fontBaseChars: 20, textAlign: 'center' },
+      // CTA text on top, gray "Subscribed" pill, arrow below it.
+      outro2: {
+        padTop: 0,
+        txtTop: 100,
+        fontPx: 92,
+        fontBaseChars: 42,
+        textAlign: 'center',
+        pillTop: 820,
+        pillFontPx: 46,
+        arrowTop: 980,
+        arrowH: 300
+      }
+    }
   }
 ]
 
@@ -1253,8 +1304,10 @@ function pillHtml(set: StorySet, pulseDelay: number, fontPx?: number): string {
       return `<div class="sub sub-dark" style="${size}animation-delay:${d}s"><span class="sub-label"${labelSize}>SUBSCRIBE</span><span class="sub-bell">${BELL('#101010', 30)}</span></div>`
     case 'outline':
       return `<div class="sub sub-outline" style="${size}animation-delay:${d}s"><span class="sub-label"${labelSize}>SUBSCRIBE</span>${BELL(set.ink, 34)}</div>`
-    case 'subscribed':
-      return `<div class="sub sub-light" style="${size}animation-delay:${d}s">${BELL('#101010', 32)}<span class="sub-label"${labelSize}>Subscribed</span><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#101010" stroke-width="3" aria-hidden="true"><path d="M5 9 L12 16 L19 9"/></svg></div>`
+    case 'subscribed': {
+      const bgc = set.pillColor ? `background:${set.pillColor};` : ''
+      return `<div class="sub sub-light" style="${bgc}${size}animation-delay:${d}s">${BELL('#101010', 32)}<span class="sub-label"${labelSize}>Subscribed</span><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#101010" stroke-width="3" aria-hidden="true"><path d="M5 9 L12 16 L19 9"/></svg></div>`
+    }
     case 'brand':
       return `<div class="sub sub-brand" style="${size}animation-delay:${d}s"><span class="sub-label"${labelSize}>SUBSCRIBE</span>${BELL('#FFFFFF', 42)}</div>`
   }
@@ -1554,7 +1607,7 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   .sc2{opacity:0;animation:scIn .35s ease-out both;animation-delay:${tSplit.toFixed(2)}s;animation-iteration-count:1}
   .badge{display:inline-block;white-space:nowrap;background:${set.badge.bg};color:${set.badge.ink};font-weight:800;font-size:34px;${badgeSpacedCss}
          padding:12px 28px;border-radius:14px;margin-top:26px;align-self:flex-start;opacity:0;animation:drop .45s cubic-bezier(.2,.8,.3,1.15) both;animation-iteration-count:1}
-  .txt{color:${set.ink};font-weight:900;${capsCss}${italicCss}${spacedCss}line-height:1.16;max-width:100%;
+  .txt{color:${set.ink};font-weight:${set.textWeight ?? 900};${capsCss}${italicCss}${spacedCss}line-height:1.16;max-width:100%;
        overflow-wrap:normal;word-break:keep-all;margin-top:18px}
   ${underline2Css}
   .w{display:inline-block;opacity:0;animation:wIn .38s cubic-bezier(.2,.7,.3,1) both;animation-iteration-count:1}
