@@ -1267,6 +1267,59 @@ const OA_GUIDES_SETS: StorySet[] = [
         arrowH: 300
       }
     }
+  },
+  {
+    id: 10,
+    name: 'oaguides-cat',
+    bg: '#000000',
+    ink: '#FFFFFF',
+    font: 'Poppins',
+    weights: '600;700',
+    textWeight: 700,
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'center',
+    badge: { bg: '#E5E0D5', ink: '#111111', spaced: false, italic: true },
+    arrowStyle: 'block',
+    arrowColor: '#FFFFFF',
+    pill: 'brand',
+    pillColor: '#D93B0D',
+    // White highlight + italic = italic EMPHASIS with no colour change (the
+    // design italicises the punch phrase, e.g. "get this?", "60 seconds").
+    hlColor: '#FFFFFF',
+    hlItalic: true,
+    assets: { intro1: 'key', intro2: 'magnifier', outro1: 'handshake' },
+    assetMode: 'image',
+    imageSlots: STD_SLOTS,
+    layouts: {
+      // Cream exam-badge top-RIGHT; hook right-aligned; suited-cat in the
+      // lower backdrop.
+      intro1: {
+        padTop: 0,
+        txtTop: 180,
+        fontPx: 118,
+        fontBaseChars: 22,
+        textAlign: 'right',
+        badgeTop: 90,
+        badgeFontPx: 54,
+        badgeAlign: 'right'
+      },
+      intro2: { padTop: 0, txtTop: 120, fontPx: 120, fontBaseChars: 22, textAlign: 'center' },
+      outro1: { padTop: 0, txtTop: 150, fontPx: 120, fontBaseChars: 20, textAlign: 'left' },
+      // CTA text (left), red brand pill, arrow below it.
+      outro2: {
+        padTop: 0,
+        txtTop: 60,
+        fontPx: 92,
+        fontBaseChars: 42,
+        textAlign: 'left',
+        pillTop: 720,
+        pillFontPx: 44,
+        arrowTop: 850,
+        arrowH: 300
+      }
+    }
   }
 ]
 
