@@ -1113,6 +1113,55 @@ const OA_GUIDES_SETS: StorySet[] = [
         arrowH: 300
       }
     }
+  },
+  {
+    id: 7,
+    name: 'oaguides-doodle',
+    bg: '#F5F4F2',
+    ink: '#111111',
+    font: 'Nunito',
+    weights: '800;900',
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'center',
+    badge: { bg: '#C0341B', ink: '#F5EAD9', spaced: false },
+    arrowStyle: 'block',
+    arrowColor: '#111111',
+    pill: 'brand',
+    pillColor: '#C0341B',
+    assets: { intro1: 'magnifier', intro2: 'key', outro1: 'handshake' },
+    assetMode: 'image',
+    imageSlots: STD_SLOTS,
+    layouts: {
+      // Red exam-badge at top; hook LOW (doodles fill the upper backdrop).
+      intro1: {
+        padTop: 0,
+        txtTop: 860,
+        fontPx: 128,
+        fontBaseChars: 26,
+        textAlign: 'center',
+        badgeTop: 10,
+        badgeFontPx: 66,
+        badgeAlign: 'center'
+      },
+      // Text upper-middle, torn-newspaper scrap in the lower backdrop.
+      intro2: { padTop: 0, txtTop: 620, fontPx: 130, fontBaseChars: 20, textAlign: 'center' },
+      // Text middle, between the newspaper scrap (top) and doodle arrow (bottom).
+      outro1: { padTop: 0, txtTop: 790, fontPx: 120, fontBaseChars: 28, textAlign: 'center' },
+      // CTA text on top, red brand pill, system arrow below it.
+      outro2: {
+        padTop: 0,
+        txtTop: 100,
+        fontPx: 96,
+        fontBaseChars: 42,
+        textAlign: 'center',
+        pillTop: 790,
+        pillFontPx: 44,
+        arrowTop: 920,
+        arrowH: 340
+      }
+    }
   }
 ]
 
