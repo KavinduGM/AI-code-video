@@ -210,6 +210,7 @@ Hard requirements you MUST follow:
         #stage {
           display: flex;
           flex-direction: column;
+          justify-content: space-between; /* CRITICAL: spread regions top->bottom */
           width: 100%;
           height: 100%;
           padding: 80px 60px;  /* breathing room around the edges */
@@ -220,6 +221,12 @@ Hard requirements you MUST follow:
         .region-top    { /* heading + underline */ }
         .region-body   { flex: 1; display: flex; ... ; gap: 24px; }
         .region-bottom { /* annotations / footer */ }
+
+    FILL THE FRAME: with justify-content:space-between the top region hugs the
+    top edge and the bottom region hugs the bottom edge, so the composition
+    fills the WHOLE height. Never leave the content as a small cluster in the
+    center with large empty bands above and below — that reads as cheap. Make
+    the text large and let the body region (flex:1) carry the main visual.
 
     HARD RULES for layout:
 
@@ -1171,9 +1178,19 @@ export async function generateSceneHtml(args: SceneRenderArgs): Promise<SceneHtm
             `attempt ${attempt}/${MAX_ATTEMPTS}: WARNING — ${empties.length} empty shape(s) remain after ${MAX_ATTEMPTS} attempts (a box rendered with no text inside). Consider using plain text instead of a box for this scene.`
           )
         }
-        if (sparse) {
+        if (sparse && !edgeOverflow) {
+          // Deterministic fill: repairs couldn't fill the frame, so force the
+          // content column to spread top-to-bottom (analogous to force-fit for
+          // overflow). Guarantees the frame is filled rather than shipping a
+          // small centered cluster with empty bands.
+          outHtml = injectFillSpread(outHtml)
+          if (sz === 'ok') sz = 'force-fitted'
           log.push(
-            `attempt ${attempt}/${MAX_ATTEMPTS}: WARNING — layout still sparse after ${MAX_ATTEMPTS} attempts (content fills ${Math.round(fillFrac * 100)}% of the safe height; target ≥${Math.round(MIN_VERTICAL_FILL * 100)}%) — shipping best output`
+            `attempt ${attempt}/${MAX_ATTEMPTS}: layout still sparse (${Math.round(fillFrac * 100)}% of safe height) after ${MAX_ATTEMPTS} attempts — applied deterministic space-between fill so the content spans the frame`
+          )
+        } else if (sparse) {
+          log.push(
+            `attempt ${attempt}/${MAX_ATTEMPTS}: WARNING — layout still sparse after ${MAX_ATTEMPTS} attempts (${Math.round(fillFrac * 100)}% of the safe height) — shipping best output`
           )
         }
         return finalize(outHtml, sanitized, attempt, 'passed', sz, log)
@@ -1913,6 +1930,41 @@ export function injectCalmReveal(html: string, durationSeconds: number): string 
   if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, inject + '\n</body>')
   else out += inject
   return out
+}
+
+/**
+ * DETERMINISTIC SPARSE FILL: when repairs cannot make a scene fill the frame
+ * (content clustered/centered with empty bands), force the content column to
+ * spread top-to-bottom. Descends through single-child wrappers to find the
+ * container that actually holds the regions, then sets it to a space-between
+ * flex column so the first region hugs the top and the last hugs the bottom.
+ * Only ever applied to an already-sparse scene, so it can only help; layout
+ * only, so word-reveal animations still play.
+ */
+export function injectFillSpread(html: string): string {
+  const inject = `
+<style>#stage{display:flex !important;flex-direction:column !important;justify-content:space-between !important}</style>
+<script>
+  (function () {
+    var stage = document.getElementById('stage') || document.querySelector('.safe') || document.body
+    if (!stage) return
+    var kidsOf = function (el) {
+      return Array.prototype.slice.call(el.children).filter(function (c) {
+        return c.tagName !== 'STYLE' && c.tagName !== 'SCRIPT'
+      })
+    }
+    var target = stage, kids = kidsOf(stage), hops = 0
+    while (kids.length === 1 && hops < 4) { target = kids[0]; kids = kidsOf(target); hops++ }
+    if (kids.length >= 2) {
+      target.style.setProperty('display', 'flex', 'important')
+      target.style.setProperty('flex-direction', 'column', 'important')
+      target.style.setProperty('justify-content', 'space-between', 'important')
+      if (target !== stage) target.style.setProperty('min-height', '82%', 'important')
+    }
+  })()
+</script>`
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, inject + '\n</body>')
+  return html + inject
 }
 
 export function sanitizeLoops(html: string): { html: string; sanitized: string[] } {
