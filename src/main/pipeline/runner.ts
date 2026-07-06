@@ -729,16 +729,49 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
       }
     }
 
-    // STATIC SCENE FALLBACK. A looping scene is the one defect worse than a
-    // static one — if after every repair attempt the best version STILL loops,
-    // ship a deterministic static composition of the scene's quoted lines (in
-    // the script's own palette and font) instead. No animation → cannot loop.
-    if (seg.kind === 'scene' && best.issues.some(isLoopIssue)) {
+    // NEAR-EMPTY BACKSTOP. An AI scene can render as a bare box / outline with
+    // its text missing or faded to invisible. The loop and empty-shape checks
+    // miss this (the box border carries enough ink to mask the lost text, and
+    // the shape isn't an .hf-box), so it would ship almost blank. Sample the
+    // final frame of the BEST render; if it's nearly empty, only the
+    // deterministic static card is a reliable output.
+    let nearEmpty = false
+    if (seg.kind === 'scene') {
+      try {
+        const fs2 = await sampleInkFractions(
+          { videoIn: best.mp4, count: 8, durationSeconds: audioDuration, workDir: segDir },
+          () => {}
+        )
+        const g = fs2.global
+        const finalInk = g.length ? g[g.length - 1] : 1
+        const peakInk = g.length ? Math.max(...g) : 1
+        // Absolute floor catches the bare empty box; the peak comparison catches
+        // content that appeared and then vanished by the final frame.
+        nearEmpty = finalInk < 0.008 || (peakInk > 0.02 && finalInk < peakInk * 0.35)
+        if (nearEmpty)
+          cb.onLog({
+            ts: Date.now(),
+            level: 'warn',
+            message: `${seg.label}: final frame is nearly empty (${(finalInk * 100).toFixed(1)}% ink) — the scene's text is missing or faded; replacing with the reliable static composition.`
+          })
+      } catch {
+        /* can't measure → don't force the fallback */
+      }
+    }
+
+    // STATIC SCENE FALLBACK. A looping OR near-empty scene is worse than a
+    // static one — if after every repair attempt the best version still loops
+    // or renders nearly blank, ship a deterministic static composition of the
+    // scene's quoted lines (in the script's own palette/font). No animation →
+    // cannot loop; plain text → cannot come out empty.
+    const sceneLoops = seg.kind === 'scene' && best.issues.some(isLoopIssue)
+    if (seg.kind === 'scene' && (sceneLoops || nearEmpty)) {
       // CALM-REVEAL first: keep the designed layout, delete ALL of its motion
       // (author scripts included — JS show-then-hide tweens are exactly what
       // survives sanitizeLoops), and re-animate with a deterministic staggered
       // fade-in. Verified by the same motion audit before we trust it.
       let calmFixed = false
+      if (sceneLoops && !nearEmpty) {
       try {
         cb.onLog(info(`${seg.label}: still LOOPS after ${attempt} attempt(s) — trying the CALM-REVEAL fallback (layout kept, motion replaced with a staggered fade-in that cannot flicker).`))
         const calmHtml = injectCalmReveal(best.html, audioDuration)
@@ -763,6 +796,7 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
       } catch (err: any) {
         if (/cancelled/i.test(err?.message ?? '')) throw err
         cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: calm-reveal fallback failed (${err?.message ?? err}) — using the static card instead.` })
+      }
       }
 
       if (!calmFixed) {
