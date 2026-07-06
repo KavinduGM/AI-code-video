@@ -50,7 +50,7 @@ export type AssetId =
   | 'handshake'
 
 export type ArrowStyle = 'block' | 'thin' | 'curved' | 'slim'
-export type PillStyle = 'light' | 'dark' | 'outline' | 'subscribed'
+export type PillStyle = 'light' | 'dark' | 'outline' | 'subscribed' | 'brand'
 
 export interface StorySet {
   id: number
@@ -143,6 +143,9 @@ export interface CardLayout {
   fontBaseChars?: number
   /** badge chip alignment on intro scene 1 (default left) */
   badgeAlign?: 'left' | 'center'
+  /** absolute badge-chip top (px, safe-relative) — for designs where the exam-name
+   *  chip sits away from the scene top (e.g. on a prop). Default: flows above scene-1 text. */
+  badgeTop?: number
   hero?: HeroLayout
 }
 
@@ -798,8 +801,66 @@ export function channelSlug(channel?: string): string {
     .replace(/(^-|-$)/g, '')
 }
 
+// OA Guides pack. Black bg, bold Playfair serif, brick-red accent. Set 1 =
+// "typewriter": intro1 hook TOP + exam badge on the paper (badgeTop), intro2
+// dramatic caps line, outro1 short line beside a wax seal (in the backdrop),
+// outro2 CTA + red brand pill + system arrow (the designer omitted the arrow
+// in the storyboard — we always draw one). More OA Guides sets are added here
+// as their design frames arrive and get measured.
+const OA_GUIDES_SETS: StorySet[] = [
+  {
+    id: 1,
+    name: 'oaguides-typewriter',
+    bg: '#000000',
+    ink: '#FFFFFF',
+    font: 'Playfair Display',
+    weights: '700;900',
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'center',
+    badge: { bg: '#D93B0D', ink: '#FFFFFF', spaced: false },
+    arrowStyle: 'block',
+    arrowColor: '#FFFFFF',
+    pill: 'brand',
+    assets: { intro1: 'key', intro2: 'magnifier', outro1: 'handshake' },
+    assetMode: 'image',
+    imageSlots: STD_SLOTS,
+    layouts: {
+      // Hook near the top; exam-name chip lands on the typewriter paper.
+      intro1: {
+        padTop: 0,
+        txtTop: 120,
+        fontPx: 108,
+        fontBaseChars: 26,
+        textAlign: 'center',
+        badgeTop: 935,
+        badgeFontPx: 80,
+        badgeAlign: 'center'
+      },
+      // Dramatic centered line ("DON'T BE ONE OF THEM.").
+      intro2: { padTop: 0, txtTop: 470, fontPx: 132, fontBaseChars: 22, textAlign: 'center' },
+      // Short line beside the wax seal (seal is baked into the backdrop).
+      outro1: { padTop: 0, txtTop: 600, fontPx: 140, fontBaseChars: 16, textAlign: 'center' },
+      // CTA text on top, red brand pill mid-frame, arrow below it pointing up.
+      outro2: {
+        padTop: 0,
+        txtTop: 180,
+        fontPx: 92,
+        fontBaseChars: 42,
+        textAlign: 'center',
+        pillTop: 660,
+        pillFontPx: 44,
+        arrowTop: 870,
+        arrowH: 400
+      }
+    }
+  }
+]
+
 export const STORY_SET_PACKS: Record<string, StorySet[]> = {
-  [channelSlug('State Exams Prep')]: STORY_SETS
+  [channelSlug('State Exams Prep')]: STORY_SETS,
+  [channelSlug('OA Guides')]: OA_GUIDES_SETS
 }
 
 /** The 10 sets for a channel. Un-coded channels fall back to the State Exams
@@ -1089,6 +1150,8 @@ function pillHtml(set: StorySet, pulseDelay: number, fontPx?: number): string {
       return `<div class="sub sub-outline" style="${size}animation-delay:${d}s"><span class="sub-label"${labelSize}>SUBSCRIBE</span>${BELL(set.ink, 34)}</div>`
     case 'subscribed':
       return `<div class="sub sub-light" style="${size}animation-delay:${d}s">${BELL('#101010', 32)}<span class="sub-label"${labelSize}>Subscribed</span><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#101010" stroke-width="3" aria-hidden="true"><path d="M5 9 L12 16 L19 9"/></svg></div>`
+    case 'brand':
+      return `<div class="sub sub-brand" style="${size}animation-delay:${d}s"><span class="sub-label"${labelSize}>SUBSCRIBE</span>${BELL('#FFFFFF', 42)}</div>`
   }
 }
 
@@ -1186,10 +1249,27 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   const badgeAlignCss =
     (set.layouts?.intro1?.badgeAlign === 'center' ? 'align-self:center;' : '') +
     (set.italic ? 'font-style:italic;' : '')
-  const badgeHtml =
-    spec.kind === 'intro' && spec.badge
-      ? `<div class="badge" style="${badgeSizeCss}${badgeAlignCss}animation-delay:${badgeDelay.toFixed(2)}s">${esc(spec.badge)}</div>`
-      : ''
+  // Absolute badge placement: designs where the exam-name chip sits away from
+  // the scene top (e.g. on OA Guides' typewriter paper). When badgeTop is set,
+  // the chip is positioned at that safe-relative Y inside a full-width centering
+  // wrapper (clamped into the safe area); otherwise it flows above scene-1 text.
+  const badgeTopRaw = set.layouts?.intro1?.badgeTop
+  const badgeItalicCss = set.italic ? 'font-style:italic;' : ''
+  let badgeHtml = ''
+  if (spec.kind === 'intro' && spec.badge) {
+    if (badgeTopRaw !== undefined) {
+      const bfp = badgeFontPx ?? 34
+      const badgeH = Math.round(bfp * 1.2 + (badgeFontPx ? Math.round(bfp * 0.3) * 2 : 24))
+      const badgeTopC = Math.max(0, Math.min(badgeTopRaw, 1380 - badgeH))
+      const centered = set.layouts?.intro1?.badgeAlign === 'center'
+      const padL = set.layouts?.intro1?.padLeft ?? 0
+      badgeHtml =
+        `<div style="position:absolute;left:0;right:0;top:${badgeTopC}px;display:flex;justify-content:${centered ? 'center' : 'flex-start'};${padL ? `padding-left:${padL}px;` : ''}">` +
+        `<div class="badge" style="${badgeSizeCss}${badgeItalicCss}margin-top:0;animation-delay:${badgeDelay.toFixed(2)}s">${esc(spec.badge)}</div></div>`
+    } else {
+      badgeHtml = `<div class="badge" style="${badgeSizeCss}${badgeAlignCss}animation-delay:${badgeDelay.toFixed(2)}s">${esc(spec.badge)}</div>`
+    }
+  }
 
   // Per-card layouts: the set's storyboard-tuned overrides on top of the
   // generic defaults. Heroes use the uploaded PNG when present, else the
@@ -1375,6 +1455,8 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   .sub-dark .sub-bell{width:56px;height:56px;border-radius:50%;background:#FFFFFF;display:flex;align-items:center;justify-content:center}
   .sub-outline{background:transparent;border:4px solid ${set.ink};padding:12px 30px}
   .sub-outline .sub-label{color:${set.ink}}
+  .sub-brand{background:${set.badge.bg};padding:16px 44px}
+  .sub-brand .sub-label{color:${set.badge.ink}}
   .sub-label{font-weight:800;font-size:38px;letter-spacing:1px;font-style:normal}
   .arrow-pop{align-self:center;margin-top:30px;opacity:0;animation:wIn .5s ease-out both;animation-iteration-count:1}
   .adraw{stroke-dasharray:520;stroke-dashoffset:520;animation:adraw .8s ease-in-out both;animation-iteration-count:1}
