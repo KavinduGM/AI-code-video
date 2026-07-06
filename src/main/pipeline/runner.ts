@@ -467,7 +467,8 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
           durationSeconds: audioDuration,
           set: storySet,
           images,
-          backdrops
+          backdrops,
+          highlight: seg.highlights
         })
         await scaffoldProject(projectDir, html)
         for (const a of assetCopies) {

@@ -408,7 +408,8 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
             durationSeconds: a.durationSeconds,
             set: storySet,
             images: res.images,
-            backdrops: res.backdrops
+            backdrops: res.backdrops,
+            highlight: a.io.highlight
           })
           const projectDir = path.join(previewDir, `proj-${outName}`)
           await scaffoldProject(projectDir, html)

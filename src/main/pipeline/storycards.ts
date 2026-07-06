@@ -64,10 +64,16 @@ export interface StorySet {
   spaced: boolean
   /** text alignment for scene text blocks */
   align: 'left' | 'right' | 'center'
-  badge: { bg: string; ink: string; spaced?: boolean }
+  badge: { bg: string; ink: string; spaced?: boolean; italic?: boolean }
   arrowStyle: ArrowStyle
   arrowColor: string
   pill: PillStyle
+  /** brand-pill fill when it differs from the badge colour (e.g. blue badge, red pill) */
+  pillColor?: string
+  /** per-word scene-text highlight colour (words listed in the script's `highlight:` get it) */
+  hlColor?: string
+  /** italicise highlighted words */
+  hlItalic?: boolean
   /** underline treatment on the intro scene-2 text (set 5 storyboard) */
   underline2?: boolean
   /** code-drawn fallback heroes, used for any slot whose PNG is not uploaded */
@@ -855,6 +861,55 @@ const OA_GUIDES_SETS: StorySet[] = [
         arrowH: 400
       }
     }
+  },
+  {
+    id: 2,
+    name: 'oaguides-thinker',
+    bg: '#000000',
+    ink: '#FFFFFF',
+    font: 'Montserrat',
+    weights: '700;800',
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'center',
+    badge: { bg: '#1B7FD6', ink: '#000000', spaced: false, italic: true },
+    arrowStyle: 'block',
+    arrowColor: '#FFFFFF',
+    pill: 'brand',
+    pillColor: '#D93B0D',
+    hlColor: '#1B7FD6',
+    hlItalic: true,
+    assets: { intro1: 'key', intro2: 'magnifier', outro1: 'handshake' },
+    assetMode: 'image',
+    imageSlots: STD_SLOTS,
+    layouts: {
+      // Blue exam-badge at the top; bold hook below (statue baked into backdrop).
+      intro1: {
+        padTop: 0,
+        txtTop: 270,
+        fontPx: 128,
+        fontBaseChars: 26,
+        textAlign: 'center',
+        badgeTop: 20,
+        badgeFontPx: 72,
+        badgeAlign: 'center'
+      },
+      intro2: { padTop: 0, txtTop: 150, fontPx: 130, fontBaseChars: 22, textAlign: 'center' },
+      outro1: { padTop: 0, txtTop: 150, fontPx: 135, fontBaseChars: 16, textAlign: 'center' },
+      // CTA text on top, red brand pill mid-frame, arrow below it.
+      outro2: {
+        padTop: 0,
+        txtTop: 120,
+        fontPx: 92,
+        fontBaseChars: 42,
+        textAlign: 'center',
+        pillTop: 790,
+        pillFontPx: 44,
+        arrowTop: 1010,
+        arrowH: 300
+      }
+    }
   }
 ]
 
@@ -1167,6 +1222,8 @@ export interface StoryCardSpec {
   subscribe?: boolean
   durationSeconds: number
   set: StorySet
+  /** scene-text words to highlight in the set's hlColor (from the script's `highlight:`) */
+  highlight?: string[]
   /** for image sets: resolved hrefs per hero slot (e.g. "assets/intro1_hero.png") */
   images?: Partial<Record<'intro1' | 'intro2' | 'outro1' | 'outro2', string>>
   /**
@@ -1184,7 +1241,13 @@ function textSizeFor(text: string): number {
   return len <= 20 ? 96 : len <= 32 ? 84 : len <= 48 ? 70 : 60
 }
 
-function wordSpans(text: string, from: number, to: number): { html: string; last: number } {
+const normHl = (w: string): string => w.toLowerCase().replace(/[^a-z0-9]/g, '')
+function wordSpans(
+  text: string,
+  from: number,
+  to: number,
+  hl?: { words: Set<string>; color: string; italic: boolean }
+): { html: string; last: number } {
   const words = text.split(/\s+/).filter(Boolean)
   const n = words.length
   const step = n > 1 ? Math.min(0.3, Math.max(0.08, (to - from) / (n - 1))) : 0
@@ -1193,7 +1256,9 @@ function wordSpans(text: string, from: number, to: number): { html: string; last
     .map((w, i) => {
       const d = Math.min(from + i * step, to)
       last = Math.max(last, d)
-      return `<span class="w" style="animation-delay:${d.toFixed(2)}s">${esc(w)}</span>`
+      const isHl = hl && hl.words.has(normHl(w))
+      const extra = isHl ? `color:${hl!.color};${hl!.italic ? 'font-style:italic;' : ''}` : ''
+      return `<span class="w" style="${extra}animation-delay:${d.toFixed(2)}s">${esc(w)}</span>`
     })
     .join(' ')
   return { html, last }
@@ -1214,14 +1279,21 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
 
   // Scene 1 timings
   const badgeDelay = 0.15
-  const s1 = wordSpans(spec.scene1, 0.35, Math.max(0.5, tSplit - 0.75))
+  const hlOpts = set.hlColor
+    ? {
+        words: new Set((spec.highlight ?? []).flatMap((h) => h.split(/\s+/)).map(normHl).filter(Boolean)),
+        color: set.hlColor,
+        italic: !!set.hlItalic
+      }
+    : undefined
+  const s1 = wordSpans(spec.scene1, 0.35, Math.max(0.5, tSplit - 0.75), hlOpts)
   const hero1Delay = Math.min(0.55, Math.max(0.3, tSplit * 0.3))
   const exitDelay = Math.max(0.4, tSplit - 0.35)
 
   // Scene 2 timings
   const s2From = tSplit + 0.3
   const s2To = Math.max(s2From + 0.2, D - 0.95)
-  const s2 = wordSpans(spec.scene2, s2From, spec.subscribe ? Math.min(s2To, D - 1.6) : s2To)
+  const s2 = wordSpans(spec.scene2, s2From, spec.subscribe ? Math.min(s2To, D - 1.6) : s2To, hlOpts)
   const hero2Delay = tSplit + 0.4
 
   // Outro CTA timings
@@ -1246,15 +1318,16 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   const badgeSizeCss = badgeFontPx
     ? `font-size:${badgeFontPx}px;padding:${Math.round(badgeFontPx * 0.3)}px ${Math.round(badgeFontPx * 0.5)}px;border-radius:${Math.round(badgeFontPx * 0.44)}px;`
     : ''
+  const badgeIsItalic = set.badge.italic || set.italic
   const badgeAlignCss =
     (set.layouts?.intro1?.badgeAlign === 'center' ? 'align-self:center;' : '') +
-    (set.italic ? 'font-style:italic;' : '')
+    (badgeIsItalic ? 'font-style:italic;' : '')
   // Absolute badge placement: designs where the exam-name chip sits away from
   // the scene top (e.g. on OA Guides' typewriter paper). When badgeTop is set,
   // the chip is positioned at that safe-relative Y inside a full-width centering
   // wrapper (clamped into the safe area); otherwise it flows above scene-1 text.
   const badgeTopRaw = set.layouts?.intro1?.badgeTop
-  const badgeItalicCss = set.italic ? 'font-style:italic;' : ''
+  const badgeItalicCss = badgeIsItalic ? 'font-style:italic;' : ''
   let badgeHtml = ''
   if (spec.kind === 'intro' && spec.badge) {
     if (badgeTopRaw !== undefined) {
@@ -1412,7 +1485,8 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
 
   const fontParam = set.font.trim().replace(/\s+/g, '+')
   const weightList = set.weights.split(';')
-  const fontAxis = set.italic
+  const needsItalic = set.italic || !!set.hlItalic || !!set.badge.italic
+  const fontAxis = needsItalic
     ? `ital,wght@${weightList.map((w) => `0,${w}`).join(';')};${weightList.map((w) => `1,${w}`).join(';')}`
     : `wght@${set.weights}`
   return `<!DOCTYPE html>
@@ -1455,7 +1529,7 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   .sub-dark .sub-bell{width:56px;height:56px;border-radius:50%;background:#FFFFFF;display:flex;align-items:center;justify-content:center}
   .sub-outline{background:transparent;border:4px solid ${set.ink};padding:12px 30px}
   .sub-outline .sub-label{color:${set.ink}}
-  .sub-brand{background:${set.badge.bg};padding:16px 44px}
+  .sub-brand{background:${set.pillColor ?? set.badge.bg};padding:16px 44px}
   .sub-brand .sub-label{color:${set.badge.ink}}
   .sub-label{font-weight:800;font-size:38px;letter-spacing:1px;font-style:normal}
   .arrow-pop{align-self:center;margin-top:30px;opacity:0;animation:wIn .5s ease-out both;animation-iteration-count:1}
