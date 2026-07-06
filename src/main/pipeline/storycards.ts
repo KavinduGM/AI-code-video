@@ -1344,12 +1344,56 @@ export function setsForChannel(channel?: string): StorySet[] {
 export function templateAssetDir(channel: string | undefined, setId: number): string {
   const base = path.join(getStoragePaths().userData, 'template-assets')
   const scoped = path.join(base, channelSlug(channel), `set-${setId}`)
-  if (fs.existsSync(scoped)) return scoped
+  const hasPng = (dir: string): boolean => {
+    try {
+      return fs.readdirSync(dir).some((f) => f.toLowerCase().endsWith('.png'))
+    } catch {
+      return false
+    }
+  }
+  // Prefer the channel-scoped folder once it actually HOLDS PNGs, so an empty
+  // scaffolded folder never shadows real assets. State Exams Prep's original
+  // uploads live in the flat template-assets/set-N/ folder; keep resolving
+  // those until they're moved into state-exams-prep/set-N/.
+  if (hasPng(scoped)) return scoped
   if (channelSlug(channel) === channelSlug('State Exams Prep')) {
     const legacy = path.join(base, `set-${setId}`)
-    if (fs.existsSync(legacy)) return legacy
+    if (hasPng(legacy)) return legacy
   }
   return scoped
+}
+
+/**
+ * Create the channel-scoped template-asset folders for every coded pack, so the
+ * user has a clear, labelled place to drop each set's *_bg.png files. Called on
+ * app startup. Empty folders are harmless — templateAssetDir keys off actual
+ * PNGs, and State Exams keeps resolving its legacy flat folders until assets are
+ * moved in. Adds a README so the folder purpose is obvious in Explorer.
+ */
+export function ensureTemplateFolders(): void {
+  const base = path.join(getStoragePaths().userData, 'template-assets')
+  for (const [slug, sets] of Object.entries(STORY_SET_PACKS)) {
+    for (const set of sets) {
+      try {
+        fs.mkdirSync(path.join(base, slug, `set-${set.id}`), { recursive: true })
+      } catch {
+        // best-effort: a missing folder just means nothing has been uploaded yet
+      }
+    }
+    try {
+      const readme = path.join(base, slug, '_PUT_BACKDROPS_HERE.txt')
+      if (!fs.existsSync(readme)) {
+        fs.writeFileSync(
+          readme,
+          `Drop each set's four backdrops into its set-N folder:\n` +
+            `  set-1/intro1_bg.png  intro2_bg.png  outro1_bg.png  outro2_bg.png\n` +
+            `  set-2/ ...\n(exact lowercase filenames)\n`
+        )
+      }
+    } catch {
+      // ignore
+    }
+  }
 }
 
 function hash(s: string): number {

@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import path from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpc } from './ipc'
+import { ensureTemplateFolders } from './pipeline/storycards'
 import { worker } from './worker'
 
 let mainWindow: BrowserWindow | null = null
@@ -42,6 +43,7 @@ app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.kavindu.aivideocreator')
   app.on('browser-window-created', (_e, w) => optimizer.watchWindowShortcuts(w))
 
+  ensureTemplateFolders()
   registerIpc(() => mainWindow)
   createWindow()
   worker.start()
