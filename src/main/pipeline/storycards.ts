@@ -1300,11 +1300,11 @@ const OA_GUIDES_SETS: StorySet[] = [
       // lower backdrop.
       intro1: {
         padTop: 0,
-        txtTop: 180,
+        txtTop: 240,
         fontPx: 118,
         fontBaseChars: 22,
         textAlign: 'right',
-        badgeTop: 90,
+        badgeTop: 10,
         badgeFontPx: 54,
         badgeAlign: 'right'
       },
@@ -1811,12 +1811,21 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   // wrapper (clamped into the safe area); otherwise it flows above scene-1 text.
   const badgeTopRaw = set.layouts?.intro1?.badgeTop
   const badgeItalicCss = badgeIsItalic ? 'font-style:italic;' : ''
+  // When the badge sits ABOVE the scene-1 hook, the hook must start below the
+  // badge's bottom edge — guards against a mis-measured badgeTop overlapping
+  // the text (0 = no constraint, e.g. designs where the badge sits below/around
+  // the text like set 1's typewriter paper).
+  let scene1BadgeClearTop = 0
   let badgeHtml = ''
   if (spec.kind === 'intro' && spec.badge) {
     if (badgeTopRaw !== undefined) {
       const bfp = badgeFontPx ?? 34
       const badgeH = Math.round(bfp * 1.2 + (badgeFontPx ? Math.round(bfp * 0.3) * 2 : 24))
       const badgeTopC = Math.max(0, Math.min(badgeTopRaw, 1380 - badgeH))
+      const introTxtTop = set.layouts?.intro1?.txtTop
+      if (introTxtTop !== undefined && badgeTopRaw < introTxtTop) {
+        scene1BadgeClearTop = badgeTopC + badgeH + 18
+      }
       const ba = set.layouts?.intro1?.badgeAlign
       const jc = ba === 'center' ? 'center' : ba === 'right' ? 'flex-end' : 'flex-start'
       const padL = set.layouts?.intro1?.padLeft ?? 0
@@ -2065,7 +2074,7 @@ export function buildStoryCardHtml(spec: StoryCardSpec): string {
   <div class="safe">
     <div class="scene sc1" style="${sceneStyle(card1)}">
       ${badgeHtml}
-      <div class="txt" style="font-size:${layoutFor(card1).fontPx ? effectiveFontPx(layoutFor(card1).fontPx!, spec.scene1, layoutFor(card1).fontBaseChars) : textSizeFor(spec.scene1)}px${layoutFor(card1).ink ? `;color:${layoutFor(card1).ink}` : ''}${layoutFor(card1).txtTop !== undefined ? `;position:absolute;top:${clampTxtTop(layoutFor(card1), spec.scene1)}px;left:${layoutFor(card1).padLeft ?? 0}px;right:0;margin-top:0` : ''}">${s1.html}</div>
+      <div class="txt" style="font-size:${layoutFor(card1).fontPx ? effectiveFontPx(layoutFor(card1).fontPx!, spec.scene1, layoutFor(card1).fontBaseChars) : textSizeFor(spec.scene1)}px${layoutFor(card1).ink ? `;color:${layoutFor(card1).ink}` : ''}${layoutFor(card1).txtTop !== undefined ? `;position:absolute;top:${Math.max(clampTxtTop(layoutFor(card1), spec.scene1), scene1BadgeClearTop)}px;left:${layoutFor(card1).padLeft ?? 0}px;right:0;margin-top:0` : ''}">${s1.html}</div>
       ${hero1Abs}
     </div>
     <div class="scene sc2" style="${sceneStyle(card2)}">
