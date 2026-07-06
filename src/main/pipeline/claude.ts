@@ -1856,6 +1856,63 @@ function parseReviewerJson(text: string): VisualReviewResult {
  *   - anime.js  loop: true | loop: N | direction: 'alternate' with loop
  *   - setInterval used for animation (can't auto-fix; logged as a warning)
  */
+/**
+ * CALM-REVEAL fallback: keep the scene's designed LAYOUT but replace ALL of
+ * its motion with a system-authored staggered fade-in that cannot flicker.
+ * Used when repeated repairs cannot cure a loop/flicker. The usual culprit is
+ * a JS-driven show-then-hide sequence (word-highlight sweep, blink emphasis,
+ * typewriter delete/retype): every tween plays "once", so sanitizeLoops has
+ * nothing to neutralize and the defect only shows up in the rendered frames.
+ * Here we delete every author <script> and SMIL animation, force everything
+ * visible, and give each top-level block a single fade-in (ends visible,
+ * fill both) — one animation per element, so flicker is impossible.
+ */
+export function injectCalmReveal(html: string, durationSeconds: number): string {
+  let out = html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<animate(?:Motion|Transform)?\b[^>]*\/>/gi, '')
+    .replace(/<animate(?:Motion|Transform)?\b[^>]*>[\s\S]*?<\/animate(?:Motion|Transform)?>/gi, '')
+  const totalReveal = Math.max(1.2, 0.7 * durationSeconds)
+  const inject = `
+<style>
+  /* Neutralize every author animation. Transforms stay — they position things. */
+  * { animation: none !important; transition: none !important; }
+  /* Everything the calm reveal doesn't animate is simply visible. */
+  *:not([data-calm]) { opacity: 1 !important; visibility: visible !important; }
+  @keyframes calmIn { from { opacity: 0; } to { opacity: 1; } }
+  /* No !important opacity on these elements — @keyframes cannot beat !important. */
+  [data-calm] { visibility: visible !important; animation: calmIn 0.55s ease-out both !important; }
+</style>
+<script>
+  (function () {
+    var stage = document.querySelector('.safe')
+    if (!stage) {
+      var bodyKids = Array.prototype.slice.call(document.body.children).filter(function (el) {
+        return el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
+      })
+      stage = bodyKids.length === 1 ? bodyKids[0] : document.body
+    }
+    var hops = 0
+    while (stage && stage.children.length === 1 && hops < 4) { stage = stage.children[0]; hops++ }
+    var kids = stage
+      ? Array.prototype.slice.call(stage.children).filter(function (el) {
+          return el.tagName !== 'STYLE' && el.tagName !== 'SCRIPT'
+        })
+      : []
+    if (kids.length < 2) return // single block — leave it fully visible
+    var step = Math.min(0.9, Math.max(0.15, ${totalReveal.toFixed(2)} / kids.length))
+    kids.forEach(function (el, i) {
+      el.setAttribute('data-calm', '1')
+      // inline !important beats the stylesheet shorthand's delay of 0s
+      el.style.setProperty('animation-delay', (0.25 + i * step).toFixed(2) + 's', 'important')
+    })
+  })()
+</script>`
+  if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, inject + '\n</body>')
+  else out += inject
+  return out
+}
+
 export function sanitizeLoops(html: string): { html: string; sanitized: string[] } {
   const notes: string[] = []
   let out = html

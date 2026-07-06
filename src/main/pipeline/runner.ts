@@ -10,7 +10,8 @@ import {
   buildStaticIntroOutroCard,
   buildStaticSceneCard,
   buildAnimatedIntroOutroCard,
-  buildStoryIntroOutroCard
+  buildStoryIntroOutroCard,
+  injectCalmReveal
 } from './claude'
 import { pickStorySet, STORY_SETS } from './storycards'
 import { computeSceneFeatures, saveTemplate, findBestTemplate } from './templates'
@@ -731,10 +732,42 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
     // ship a deterministic static composition of the scene's quoted lines (in
     // the script's own palette and font) instead. No animation → cannot loop.
     if (seg.kind === 'scene' && best.issues.some(isLoopIssue)) {
+      // CALM-REVEAL first: keep the designed layout, delete ALL of its motion
+      // (author scripts included — JS show-then-hide tweens are exactly what
+      // survives sanitizeLoops), and re-animate with a deterministic staggered
+      // fade-in. Verified by the same motion audit before we trust it.
+      let calmFixed = false
+      try {
+        cb.onLog(info(`${seg.label}: still LOOPS after ${attempt} attempt(s) — trying the CALM-REVEAL fallback (layout kept, motion replaced with a staggered fade-in that cannot flicker).`))
+        const calmHtml = injectCalmReveal(best.html, audioDuration)
+        await scaffoldProject(projectDir, calmHtml)
+        if (handle.cancelled) throw new Error('Cancelled')
+        const calmMp4 = path.join(segDir, 'render_calm.mp4')
+        await renderHyperframes({
+          command: settings.hyperframes_command,
+          projectDir,
+          outputMp4: calmMp4,
+          onLog: (line) => cb.onLog(info(`hyperframes: ${line}`))
+        })
+        const calmSample = await sampleInkFractions({ videoIn: calmMp4, count: 16, durationSeconds: audioDuration, workDir: segDir }, () => {})
+        const calmVerdict = analyzeMotion(calmSample)
+        if (!calmVerdict.loop && !calmVerdict.blank) {
+          best = { html: calmHtml, mp4: calmMp4, issues: [] }
+          calmFixed = true
+          cb.onLog(info(`${seg.label}: calm-reveal PASSED the motion audit — original design preserved with clean animation.`))
+        } else {
+          cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: calm-reveal still failed the motion audit (${calmVerdict.loop ? 'loop' : 'blank render'}) — using the static card instead.` })
+        }
+      } catch (err: any) {
+        if (/cancelled/i.test(err?.message ?? '')) throw err
+        cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: calm-reveal fallback failed (${err?.message ?? err}) — using the static card instead.` })
+      }
+
+      if (!calmFixed) {
       cb.onLog({
         ts: Date.now(),
         level: 'warn',
-        message: `${seg.label}: the best version still LOOPS after ${attempt} attempt(s) — falling back to a clean STATIC composition of the scene's text (a calm still beats a flickering scene).`
+        message: `${seg.label}: falling back to a clean STATIC composition of the scene's text (a calm still beats a flickering scene).`
       })
       try {
         const staticHtml = await buildStaticSceneCard(seg.explainer, spec.style, audioDuration)
@@ -755,6 +788,7 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
         }
       } catch (err: any) {
         cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: static scene fallback failed (${err.message}) — using the best animated version.` })
+      }
       }
     }
 
