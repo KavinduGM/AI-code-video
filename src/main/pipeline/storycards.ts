@@ -910,6 +910,56 @@ const OA_GUIDES_SETS: StorySet[] = [
         arrowH: 300
       }
     }
+  },
+  {
+    id: 3,
+    name: 'oaguides-mind',
+    bg: '#E8E4DD',
+    ink: '#1A1A1A',
+    font: 'Fraunces',
+    weights: '700;900',
+    caps: false,
+    italic: false,
+    spaced: false,
+    align: 'center',
+    badge: { bg: '#1A1A1A', ink: '#FFFFFF', spaced: false },
+    arrowStyle: 'block',
+    arrowColor: '#1A1A1A',
+    pill: 'outline',
+    hlColor: '#C0371C',
+    hlItalic: false,
+    assets: { intro1: 'magnifier', intro2: 'key', outro1: 'handshake' },
+    assetMode: 'image',
+    imageSlots: STD_SLOTS,
+    layouts: {
+      // Black exam-badge at top; serif hook above the head silhouette (baked
+      // into the backdrop); the punch word highlights red.
+      intro1: {
+        padTop: 0,
+        txtTop: 260,
+        fontPx: 116,
+        fontBaseChars: 26,
+        textAlign: 'center',
+        badgeTop: 30,
+        badgeFontPx: 76,
+        badgeAlign: 'center'
+      },
+      intro2: { padTop: 0, txtTop: 220, fontPx: 118, fontBaseChars: 38, textAlign: 'center' },
+      // Short line above the megaphone doodle (in the backdrop).
+      outro1: { padTop: 0, txtTop: 150, fontPx: 135, fontBaseChars: 16, textAlign: 'center' },
+      // CTA text on top, black-outline subscribe pill, arrow below it.
+      outro2: {
+        padTop: 0,
+        txtTop: 120,
+        fontPx: 92,
+        fontBaseChars: 42,
+        textAlign: 'center',
+        pillTop: 720,
+        pillFontPx: 42,
+        arrowTop: 840,
+        arrowH: 340
+      }
+    }
   }
 ]
 
