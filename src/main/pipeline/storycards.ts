@@ -941,17 +941,18 @@ const OA_GUIDES_SETS: StorySet[] = [
     assetMode: 'image',
     imageSlots: STD_SLOTS,
     layouts: {
-      // Revised frame: clean empty top; the head silhouette with "simplified."
-      // (red) baked into its brain sits in the lower half. Badge at the very
-      // top, serif hook centered in the empty upper area, well above the head.
+      // Badge at the top; serif hook ("Hardest concept") in the mid-upper area
+      // just above the head silhouette, which sits in the lower half with
+      // "simplified." (red) baked into its brain. effectiveFontPx keeps the
+      // hook <=2 lines so it always clears the head crown (~safeY 710).
       intro1: {
         padTop: 0,
-        txtTop: 230,
+        txtTop: 350,
         fontPx: 116,
         fontBaseChars: 26,
         textAlign: 'center',
-        badgeTop: 40,
-        badgeFontPx: 76,
+        badgeTop: 30,
+        badgeFontPx: 80,
         badgeAlign: 'center'
       },
       intro2: { padTop: 0, txtTop: 220, fontPx: 118, fontBaseChars: 38, textAlign: 'center' },
