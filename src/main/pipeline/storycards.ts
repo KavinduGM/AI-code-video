@@ -849,8 +849,8 @@ const OA_GUIDES_SETS: StorySet[] = [
         fontPx: 108,
         fontBaseChars: 26,
         textAlign: 'center',
-        badgeTop: 935,
-        badgeFontPx: 80,
+        badgeTop: 730,
+        badgeFontPx: 84,
         badgeAlign: 'center'
       },
       // Dramatic centered line ("DON'T BE ONE OF THEM.").
