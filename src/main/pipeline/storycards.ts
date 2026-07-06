@@ -943,12 +943,14 @@ const OA_GUIDES_SETS: StorySet[] = [
     layouts: {
       // Badge at the top; serif hook ("Hardest concept") in the mid-upper area
       // just above the head silhouette, which sits in the lower half with
-      // "simplified." (red) baked into its brain. effectiveFontPx keeps the
-      // hook <=2 lines so it always clears the head crown (~safeY 710).
+      // "simplified." (red) baked into its brain. The head takes the lower
+      // half, so the hook sits HIGH (right under the badge) at a moderate size
+      // — a 3-line hook still clears the head crown (~safeY 710). Works best
+      // with short hooks; the head leaves limited room.
       intro1: {
         padTop: 0,
-        txtTop: 350,
-        fontPx: 116,
+        txtTop: 200,
+        fontPx: 110,
         fontBaseChars: 26,
         textAlign: 'center',
         badgeTop: 30,
