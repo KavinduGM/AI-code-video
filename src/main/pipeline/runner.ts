@@ -14,6 +14,7 @@ import {
   injectCalmReveal
 } from './claude'
 import { pickStorySet, setsForChannel, templateAssetDir } from './storycards'
+import { buildSyncedSceneHtml } from './syncedscenes'
 import { computeSceneFeatures, saveTemplate, findBestTemplate } from './templates'
 import { generateAudioWithTimestamps, type WordTiming } from './tts'
 import { mergeExamTokens, buildAss } from './captions'
@@ -591,6 +592,29 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
         })
       } catch (err: any) {
         cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: deterministic card build failed (${err.message}) — falling back to Claude generation.` })
+      }
+    }
+    // MIDDLE SCENES — composed DETERMINISTICALLY and SYNCED to the voiceover.
+    // The scene type (plain bands / text box / marks + star) is parsed from the
+    // explainer, drawn entirely in code, and each line's reveal is anchored to
+    // the exact moment its phrase is spoken (using the same ElevenLabs word
+    // timings that drive the captions). One-pass reveals that end fully visible
+    // → cannot loop, cannot come out empty. Claude generation stays as the
+    // emergency fallback (e.g. an explainer with no quoted lines).
+    if (!firstHtml && seg.mode === 'scene') {
+      try {
+        cb.onLog(info(`${seg.label}: composing a deterministic voiceover-synced scene (code-built; line reveals timed to the narration${tts.words ? ` from ${tts.words.length} word timings` : ' — even spread, no word timings'})`))
+        firstHtml = await buildSyncedSceneHtml({
+          explainer: seg.explainer,
+          style: spec.style,
+          durationSeconds: audioDuration,
+          words: tts.words
+        })
+        if (!firstHtml) {
+          cb.onLog(info(`${seg.label}: no quoted display lines in the explainer — falling back to Claude generation.`))
+        }
+      } catch (err: any) {
+        cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: synced scene build failed (${err.message}) — falling back to Claude generation.` })
       }
     }
     if (!firstHtml) {
