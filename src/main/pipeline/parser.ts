@@ -1,5 +1,5 @@
 import { parse } from 'yaml'
-import type { ScriptSpec, AspectRatio, SceneSpec, TransitionType, QuestionSpec } from '@shared/types'
+import type { ScriptSpec, AspectRatio, SceneSpec, TransitionType, QuestionSpec, ChartSpec } from '@shared/types'
 import { RATIO_DIMENSIONS } from '@shared/types'
 
 const VALID_RATIOS: AspectRatio[] = ['16:9', '9:16', '1:1', '4:5', '21:9']
@@ -39,7 +39,9 @@ const ALLOWED_TOP_LEVEL = new Set([
   'question'
 ])
 
-const ALLOWED_SCENE_KEYS = new Set(['explainer', 'voiceover', 'transition_out'])
+const ALLOWED_SCENE_KEYS = new Set(['explainer', 'voiceover', 'transition_out', 'chart'])
+const ALLOWED_CHART_KEYS = new Set(['type', 'title', 'data', 'headers', 'rows', 'steps'])
+const VALID_CHART_TYPES = new Set(['bar', 'compare', 'flow', 'donut'])
 
 export class ScriptValidationError extends Error {
   constructor(message: string, public path?: string) {
@@ -291,11 +293,73 @@ function parseScene(raw: unknown, idx: number): SceneSpec {
       `${path}.transition_out.duration`
     )
   }
+  const chart = parseChart(s.chart, `${path}.chart`)
   return {
     explainer,
     voiceover,
-    transition_out: { type: ttype, duration: ttype === 'none' ? 0 : tdur }
+    transition_out: { type: ttype, duration: ttype === 'none' ? 0 : tdur },
+    ...(chart ? { chart } : {})
   }
+}
+
+/**
+ * Parse + validate an optional scene chart block. Returns undefined when the
+ * scene has no chart. Every shape is checked here so a malformed chart is a
+ * clear validation error (and the factory can regenerate) rather than a broken
+ * render. Data is structured — nothing is inferred from prose.
+ */
+function parseChart(raw: unknown, path: string): ChartSpec | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (typeof raw !== 'object') throw new ScriptValidationError('chart must be a mapping.', path)
+  const c = raw as Record<string, unknown>
+  for (const k of Object.keys(c)) {
+    if (!ALLOWED_CHART_KEYS.has(k))
+      throw new ScriptValidationError(`Unknown chart key "${k}". Allowed: ${Array.from(ALLOWED_CHART_KEYS).join(', ')}.`, `${path}.${k}`)
+  }
+  const type = String(c.type ?? '') as ChartSpec['type']
+  if (!VALID_CHART_TYPES.has(type))
+    throw new ScriptValidationError(`chart.type must be one of ${Array.from(VALID_CHART_TYPES).join(', ')}.`, `${path}.type`)
+  const title = c.title !== undefined ? String(c.title).trim() : undefined
+
+  if (type === 'bar' || type === 'donut') {
+    if (!Array.isArray(c.data) || c.data.length < 2 || c.data.length > 6)
+      throw new ScriptValidationError(`chart.data must be a list of 2–6 { label, value } items for a ${type} chart.`, `${path}.data`)
+    const data = c.data.map((d, i) => {
+      const o = (d ?? {}) as Record<string, unknown>
+      const label = String(o.label ?? '').trim()
+      const value = Number(o.value)
+      if (!label) throw new ScriptValidationError('each chart.data item needs a non-empty label.', `${path}.data[${i}].label`)
+      if (!Number.isFinite(value) || value < 0)
+        throw new ScriptValidationError('each chart.data value must be a number ≥ 0.', `${path}.data[${i}].value`)
+      return { label, value }
+    })
+    if (type === 'donut' && data.reduce((s, d) => s + d.value, 0) <= 0)
+      throw new ScriptValidationError('chart.data values for a donut must sum to more than 0.', `${path}.data`)
+    return { type, title, data }
+  }
+
+  if (type === 'compare') {
+    if (!Array.isArray(c.headers) || c.headers.length !== 2 || !c.headers.every((h) => typeof h === 'string' && h.trim()))
+      throw new ScriptValidationError('chart.headers must be exactly two non-empty strings for a compare chart.', `${path}.headers`)
+    if (!Array.isArray(c.rows) || c.rows.length < 1 || c.rows.length > 6)
+      throw new ScriptValidationError('chart.rows must be a list of 1–6 "left | right" strings for a compare chart.', `${path}.rows`)
+    const rows = c.rows.map((r, i) => {
+      const s = String(r ?? '').trim()
+      if (!s.includes('|')) throw new ScriptValidationError('each compare row must be "left | right" (contain a "|").', `${path}.rows[${i}]`)
+      return s
+    })
+    return { type, title, headers: [c.headers[0].trim(), c.headers[1].trim()], rows }
+  }
+
+  // flow
+  if (!Array.isArray(c.steps) || c.steps.length < 2 || c.steps.length > 5)
+    throw new ScriptValidationError('chart.steps must be a list of 2–5 non-empty strings for a flow chart.', `${path}.steps`)
+  const steps = c.steps.map((s, i) => {
+    const t = String(s ?? '').trim()
+    if (!t) throw new ScriptValidationError('each flow step must be a non-empty string.', `${path}.steps[${i}]`)
+    return t
+  })
+  return { type, title, steps }
 }
 
 function requireString(obj: Record<string, unknown>, key: string, path?: string): string {

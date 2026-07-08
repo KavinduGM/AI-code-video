@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Job, JobLogEntry, Transition } from '@shared/types'
+import type { Job, JobLogEntry, Transition, ChartSpec } from '@shared/types'
 import { parseScript, dimensionsForRatio } from './parser'
 import {
   generateSceneHtml,
@@ -16,6 +16,7 @@ import {
 import { pickStorySet, setsForChannel, templateAssetDir } from './storycards'
 import { buildSyncedSceneHtml } from './syncedscenes'
 import { buildQuestionSceneHtml } from './questionscenes'
+import { buildChartSceneHtml } from './chartscenes'
 import { computeSceneFeatures, saveTemplate, findBestTemplate } from './templates'
 import { generateAudioWithTimestamps, type WordTiming } from './tts'
 import { mergeExamTokens, buildAss } from './captions'
@@ -90,6 +91,7 @@ interface Segment {
   highlights?: string[] // intro/outro: extra phrases to highlight
   scene1?: string // 2-scene story template text (with scene2)
   scene2?: string
+  chart?: ChartSpec // scenes only: render this scene as a code-drawn chart/diagram
   transitionOut: Transition
 }
 
@@ -151,7 +153,7 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
     segments.push({
       kind: 'scene', label: `Scene ${i + 1}/${sceneCount}`, dirName: `scene_${i + 1}`,
       voiceover: s.voiceover, explainer: s.explainer, mode: 'scene', sceneIndex: i,
-      saveTemplates: true, mixMusic: false, subscribe: false, transitionOut: s.transition_out
+      saveTemplates: true, mixMusic: false, subscribe: false, chart: s.chart, transitionOut: s.transition_out
     })
   })
   if (spec.outro) {
@@ -618,6 +620,25 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
         })
       } catch (err: any) {
         cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: question scene build failed (${err.message}) — falling back to Claude generation.` })
+      }
+    }
+    // CHART / DIAGRAM scene — the script chose a code-drawn visual (bar,
+    // comparison table, flow, or donut) for this concept. Drawn entirely in
+    // SVG from the scene's structured `chart` data, synced to the voiceover,
+    // one-pass (cannot loop/empty). Falls through to the text-scene renderer
+    // if the chart has no drawable data.
+    if (!firstHtml && seg.mode === 'scene' && seg.chart) {
+      try {
+        cb.onLog(info(`${seg.label}: composing a deterministic ${seg.chart.type} chart (code-built SVG${tts.words ? `, synced to ${tts.words.length} word timings` : ''})`))
+        firstHtml = await buildChartSceneHtml({
+          chart: seg.chart,
+          style: spec.style,
+          durationSeconds: audioDuration,
+          words: tts.words
+        })
+        if (!firstHtml) cb.onLog(info(`${seg.label}: chart had no drawable data — falling back to the text scene.`))
+      } catch (err: any) {
+        cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: chart scene build failed (${err.message}) — falling back to the text scene.` })
       }
     }
     if (!firstHtml && seg.mode === 'scene') {

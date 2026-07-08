@@ -84,6 +84,8 @@ const HOOK_EXAMPLES = `
 // The MASTER GUIDE PROMPT
 // ---------------------------------------------------------------------
 
+export type ChartKind = 'bar' | 'compare' | 'flow' | 'donut'
+
 export interface GenerationTarget {
   examName: string // display name, e.g. "WGU C310 OA" — shown as the badge chip; never in scene1 text
   channel: string // channel name (script metadata only — the badge shows examName)
@@ -94,6 +96,18 @@ export interface GenerationTarget {
   templateSet?: number // 1..10 — shorts rotate through the template sets in order
   paletteIndex: number
   conceptText: string
+  // Batch planner: force scene 2 to be a specific chart type (the planner
+  // already matched this concept to a type its data supports). Claude must use
+  // REAL data for the concept — if it genuinely can't, it uses a normal text
+  // box rather than inventing numbers.
+  forceChart?: ChartKind
+}
+
+const CHART_DIRECTIVE: Record<ChartKind, string> = {
+  bar: 'a BAR chart (chart.type: bar) comparing 2–6 real magnitudes/percentages from this concept',
+  compare: 'a COMPARE table (chart.type: compare) with two headers and rows of "left | right" contrasts from this concept',
+  flow: 'a FLOW diagram (chart.type: flow) of 2–5 real ordered steps/stages from this concept',
+  donut: 'a DONUT (chart.type: donut) of 2–6 real proportions/shares that sum to a whole from this concept'
 }
 
 export function buildScriptPrompt(t: GenerationTarget): string {
@@ -151,7 +165,7 @@ OUTRO (2 scenes — UNIVERSAL, must NOT mention the exam name anywhere):
 
 SCENES — exactly 3, following the proven pattern:
 Scene 1 — HOOK/TRAP (text only, no shapes): a heading + 3 short lines across TOP/UPPER/MIDDLE/LOWER bands.
-Scene 2 — EXPLANATION (one box): heading, then a clean rectangular box (emphasis-color outline) revealing first with TWO short lines writing in inside it, then one accent line below.
+Scene 2 — EXPLANATION${t.forceChart ? ` (a CHART for this one): make scene 2 ${CHART_DIRECTIVE[t.forceChart]}. Add the "chart:" block to scene 2 (see the CHART section below) and give scene 2 a one-line "explainer:" describing the visual — NO quoted display lines, NO bands on this scene. Use ONLY figures/relationships that are actually true for this concept; if the concept genuinely cannot support a ${t.forceChart} with real data, fall back to the normal text box instead of inventing data.` : ' (one box): heading, then a clean rectangular box (emphasis-color outline) revealing first with TWO short lines writing in inside it, then one accent line below.'}
 Scene 3 — EXAM TIP (marks): heading "Exam Tip", then two emphasis-color check marks with labels, one warning-color cross mark with a label (the classic trap), and one accent FILLED star with the memory hook. Stars must be FILLED shapes, never outlines.
 
 HARD RULES for every scene explainer:
@@ -161,6 +175,16 @@ HARD RULES for every scene explainer:
 - Inline emphasis is allowed ("with the word \\"trigger\\" in ${p.emph} and a soft one-time pop").
 - Each element reveals ONCE and holds; end with "Hold the full composition cleanly until the scene ends."
 - transition_out: scene 1 → {type: fade, duration: 0.5}; scene 2 → {type: dissolve, duration: 0.5}; scene 3 → {type: none, duration: 0}.
+
+CHARTS (OPTIONAL — only when the concept genuinely has structured data):
+- If ONE scene's idea is best shown as a visual, you MAY add a "chart:" block to that scene. It is drawn deterministically in code (always renders cleanly). Prefer this on SCENE 2 (the explanation); keep scene 1 the text hook and scene 3 the marks+star memory hook so the proven structure holds. Use a chart AT MOST on one scene; if the concept has no real data, use no chart at all (do NOT invent numbers).
+- A chart scene STILL needs "explainer:" (a one-line description of the visual) and "voiceover:" — the reveal of each bar/row/step/segment is synced to the voiceover, so narrate them IN ORDER. A chart scene needs NO quoted display lines and NO band structure.
+- Four chart types and their EXACT data shape:
+  • bar — magnitudes/percentages:  chart: {type: bar, title: "…", data: [{label: "…", value: 70}, {label: "…", value: 30}]}   (2–6 items, value ≥ 0)
+  • compare — "X vs Y":            chart: {type: compare, title: "…", headers: ["Freehold", "Leasehold"], rows: ["Owns land | Rents it", "Indefinite | Fixed term"]}   (each row "left | right", 1–6 rows)
+  • flow — a process/sequence:     chart: {type: flow, title: "…", steps: ["Offer", "Acceptance", "Consideration"]}   (2–5 steps)
+  • donut — shares of a whole:     chart: {type: donut, title: "…", data: [{label: "…", value: 60}, {label: "…", value: 40}]}   (2–6 shares)
+- Only use figures/relationships that are TRUE for this concept. Keep labels short (≤ ~22 chars). Titles ≤ ~30 chars.
 
 VOICEOVERS: conversational exam-coach tone, drawn from the concept text (its trap, signal words, contrasts). Scene voiceovers 50–110 words each; total video ≈ 60–90 seconds. Never read display lines word-for-word — the text is the skeleton, the voice adds the story. Spell out numbers where natural.
 
@@ -190,13 +214,25 @@ outro:
   scene1: "…"
   scene2: "…"
   subscribe: true        # REQUIRED — never omit
-scenes:                  # each scene has EXACTLY these 3 keys:
+scenes:                  # each scene has "explainer", "voiceover", "transition_out"; a scene MAY also add an optional "chart":
   - explainer: |
       …
     voiceover: |
       …
     transition_out:
       type: fade
+      duration: 0.5
+  - explainer: |          # example of an OPTIONAL chart scene (omit "chart" for a normal text scene)
+      A comparison table of the two ideas.
+    chart:
+      type: compare
+      title: "…"
+      headers: ["…", "…"]
+      rows: ["left | right", "left | right"]
+    voiceover: |
+      …
+    transition_out:
+      type: dissolve
       duration: 0.5
 
 Output the complete YAML now.`
@@ -461,6 +497,257 @@ Output the ${args.maxConcepts} concept sections now.`
 }
 
 // ---------------------------------------------------------------------
+// CONCEPT TOP-UP. When a document yields fewer concepts than the target
+// short count, Claude generates ADDITIONAL exam concepts on the same
+// subject so one exam still produces a full batch. New concepts may draw
+// on general knowledge a student for this exam should know (not only what
+// the document states), but must NOT overlap the ones already present.
+// Returned strings are appended to the source concepts; each still flows
+// through the same validator + review gate as document concepts.
+// ---------------------------------------------------------------------
+
+export async function expandConcepts(
+  args: { apiKey: string; model: string; examName: string; existing: string[]; needed: number }
+): Promise<string[]> {
+  if (args.needed <= 0) return []
+  const client = new Anthropic({ apiKey: args.apiKey })
+  // Show Claude the existing concepts so it never repeats them. Trim each so a
+  // few long concepts can't blow the context budget.
+  const existingBlock = args.existing
+    .map((c, i) => `[${i + 1}] ${c.slice(0, 700)}`)
+    .join('\n\n')
+  const prompt = `You are building a batch of short exam-prep videos for the ${args.examName} exam. The source document already covers the ${args.existing.length} concept(s) below. I need ${args.needed} MORE exam concepts to complete the batch.
+
+Generate ${args.needed} ADDITIONAL, high-value concepts a student sitting the ${args.examName} exam should know. Rules:
+- Each new concept must be genuinely DISTINCT from every concept already listed and from every other new one — no restating, no near-duplicates, no "part 2" of an existing topic.
+- Stay strictly on the ${args.examName} exam's subject. You MAY use well-established general knowledge for this exam even if the document does not state it, but never invent facts, statistics, or definitions you are not confident are correct.
+- Prefer the topics most likely to appear on the exam and most commonly confused by students.
+- Each concept: a short "Topic: …" title line, then 400–900 characters of clean prose covering the definition, the exam trap/common confusion, and a memory hook or concrete example.
+- Separate concepts with a line containing ONLY --- (three hyphens), a blank line before and after.
+- Output ONLY the ${args.needed} new concept sections (no preamble, no commentary, no fences).
+
+CONCEPTS ALREADY COVERED (do NOT repeat these):
+<<<
+${existingBlock.slice(0, 55000)}
+>>>
+
+Output the ${args.needed} new concept sections now.`
+  const stream = client.messages.stream({ model: args.model || 'claude-opus-4-8', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] })
+  const resp = await stream.finalMessage()
+  let text = resp.content.filter((b) => b.type === 'text').map((b) => (b as Anthropic.TextBlock).text).join('\n').trim()
+  text = text.replace(/^```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+  // Reuse the same splitter so stubs/headers are dropped, then cap to the ask.
+  return splitConcepts(text).slice(0, args.needed)
+}
+
+// ---------------------------------------------------------------------
+// FULL-EXAM BATCH PLANNER. From one exam (a pool of concepts) produce a
+// planned MIX of shorts: a target number of plain THEORY videos, up to N of
+// each CHART type (bar/compare/flow/donut) — matched to the concepts whose
+// data actually supports that visual, never forcing a type onto a concept
+// with no real data — plus a set of Claude-AUTHORED exam questions (each
+// answer independently verified before it can render). The composition is
+// normalised deterministically (normalizeBatchPlan) so a malformed/greedy
+// plan can't break the batch; only the content is AI.
+// ---------------------------------------------------------------------
+
+export interface BatchTargets {
+  theory: number
+  charts: Record<ChartKind, number>
+  questions: number
+}
+
+/** Default 15-video mix: 3 theory + 2 of each chart (8) + 4 questions. */
+export const DEFAULT_BATCH_TARGETS: BatchTargets = {
+  theory: 3,
+  charts: { bar: 2, compare: 2, flow: 2, donut: 2 },
+  questions: 4
+}
+
+export interface BatchConceptItem {
+  text: string
+  chart?: ChartKind
+}
+export interface BatchPlan {
+  concepts: BatchConceptItem[]
+  questions: ParsedQuestion[]
+}
+
+const CHART_KINDS: ChartKind[] = ['bar', 'compare', 'flow', 'donut']
+
+/**
+ * Turn a raw planner response into a concrete, safe plan. PURE + deterministic
+ * (no AI) so it's fully unit-testable. Enforces the target mix as a CEILING per
+ * chart type (fit-limited counts can come in under target), keeps the total
+ * concept-video count stable by back-filling any chart shortfall with extra
+ * theory videos, and normalises every authored question to a valid
+ * ParsedQuestion (dropping malformed ones).
+ */
+export function normalizeBatchPlan(raw: any, pool: string[], targets: BatchTargets): BatchPlan {
+  const totalConceptSlots = targets.theory + CHART_KINDS.reduce((s, k) => s + (targets.charts[k] || 0), 0)
+  const assignments: { concept: number; format: 'theory' | ChartKind }[] = Array.isArray(raw?.assignments) ? raw.assignments : []
+
+  const usedConcepts = new Set<number>()
+  const chartItems: BatchConceptItem[] = []
+  const chartCount: Record<ChartKind, number> = { bar: 0, compare: 0, flow: 0, donut: 0 }
+
+  // Pass 1 — take chart assignments up to each type's ceiling, first fit wins.
+  for (const a of assignments) {
+    const idx = Number(a?.concept)
+    const fmt = String(a?.format || '') as ChartKind
+    if (!Number.isInteger(idx) || idx < 0 || idx >= pool.length) continue
+    if (usedConcepts.has(idx)) continue
+    if (!CHART_KINDS.includes(fmt)) continue
+    if (chartCount[fmt] >= (targets.charts[fmt] || 0)) continue
+    if (chartItems.length >= totalConceptSlots - targets.theory) continue
+    usedConcepts.add(idx)
+    chartCount[fmt]++
+    chartItems.push({ text: pool[idx], chart: fmt })
+  }
+
+  // Pass 2 — theory videos: prefer concepts the planner marked 'theory', then
+  // any remaining unused concept, until the total concept-video count is met.
+  const theoryNeeded = totalConceptSlots - chartItems.length
+  const theoryItems: BatchConceptItem[] = []
+  const takeTheory = (idx: number) => {
+    if (usedConcepts.has(idx) || idx < 0 || idx >= pool.length) return
+    usedConcepts.add(idx)
+    theoryItems.push({ text: pool[idx] })
+  }
+  for (const a of assignments) {
+    if (theoryItems.length >= theoryNeeded) break
+    if (String(a?.format) === 'theory') takeTheory(Number(a?.concept))
+  }
+  for (let idx = 0; idx < pool.length && theoryItems.length < theoryNeeded; idx++) takeTheory(idx)
+
+  // Interleave chart + theory items for on-channel variety (rotation of
+  // template sets/palettes already varies, but this avoids 8 charts in a row).
+  const concepts: BatchConceptItem[] = []
+  const maxLen = Math.max(chartItems.length, theoryItems.length)
+  for (let i = 0; i < maxLen; i++) {
+    if (i < chartItems.length) concepts.push(chartItems[i])
+    if (i < theoryItems.length) concepts.push(theoryItems[i])
+  }
+
+  // Authored questions → valid ParsedQuestion list (drop malformed).
+  const questions: ParsedQuestion[] = []
+  const rawQs = Array.isArray(raw?.questions) ? raw.questions : []
+  for (const q of rawQs) {
+    if (questions.length >= targets.questions) break
+    const question = String(q?.ask ?? q?.question ?? '').trim()
+    const options = Array.isArray(q?.options) ? q.options.map((o: any) => String(o ?? '').trim()).filter(Boolean) : []
+    const correctIndex = Number(q?.correct ?? q?.correctIndex)
+    if (!question || options.length < 2 || options.length > 4) continue
+    if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= options.length) continue
+    const whyCorrect = String(q?.whyCorrect ?? q?.explain ?? '').trim()
+    const rawWrong: string[] = Array.isArray(q?.whyWrong) ? q.whyWrong : Array.isArray(q?.wrong) ? q.wrong : []
+    const whyWrong = options.map((_: string, i: number) => (i === correctIndex ? '' : String(rawWrong[i] ?? '').trim()))
+    questions.push({ question, options, correctIndex, whyCorrect, whyWrong })
+  }
+
+  return { concepts, questions }
+}
+
+/**
+ * Ask Claude to plan the exam batch: assign each concept a best-fit format and
+ * author the exam questions. Returns the normalised, safe plan. The concept
+ * pool should already be topped up to at least `totalConceptSlots`.
+ */
+export async function planExamBatch(args: {
+  apiKey: string
+  model: string
+  examName: string
+  concepts: string[]
+  targets?: BatchTargets
+}): Promise<BatchPlan> {
+  const targets = args.targets ?? DEFAULT_BATCH_TARGETS
+  const pool = args.concepts
+  const numbered = pool.map((c, i) => `[${i}] ${c.slice(0, 500)}`).join('\n\n')
+  const chartAsk = CHART_KINDS.map((k) => `${targets.charts[k]} ${k}`).join(', ')
+  const prompt = `You are planning a batch of short exam-prep videos for the ${args.examName} exam. Below are ${pool.length} concepts, each numbered [i].
+
+Produce a PLAN as STRICT JSON (no prose, no fences) with this shape:
+{
+  "assignments": [ { "concept": <i>, "format": "theory" | "bar" | "compare" | "flow" | "donut" }, ... ],
+  "questions": [ { "ask": "...", "options": ["...", "..."], "correct": <0-based index>, "whyCorrect": "...", "whyWrong": ["...", "..."] }, ... ]
+}
+
+ASSIGNMENTS — target mix (aim for it, but FIT WINS over hitting exact counts):
+- ${targets.theory} concepts as "theory" (plain text explainer, no chart).
+- ${chartAsk} as charts. Assign a chart type to a concept ONLY when that concept's real content supports it:
+  • bar = comparing real magnitudes/percentages   • compare = a genuine "X vs Y" with contrasting attributes
+  • flow = a real ordered process/sequence          • donut = real proportions/shares that sum to a whole
+- NEVER assign a chart type to a concept that lacks the data for it — it is better to return fewer of that chart type (or mark the concept "theory") than to force a visual that would need invented numbers.
+- Use each concept at most once. It is fine to leave some concepts unassigned.
+
+QUESTIONS — author ${targets.questions} exam-style multiple-choice questions for the ${args.examName} exam:
+- Base them on the exam's subject (you may use well-established exam knowledge, not only the concepts below), but every question must be clearly exam-relevant.
+- 2–4 options each, exactly ONE correct. Set "correct" to the 0-based index. Only include a question if you are CONFIDENT the marked answer is correct.
+- "whyCorrect" explains the right answer; "whyWrong" gives a brief reason for each option (use "" at the correct index).
+
+CONCEPTS:
+<<<
+${numbered.slice(0, 55000)}
+>>>
+
+Output the JSON plan now.`
+  const client = new Anthropic({ apiKey: args.apiKey })
+  const stream = client.messages.stream({ model: args.model || 'claude-opus-4-8', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] })
+  const resp = await stream.finalMessage()
+  let text = resp.content.filter((b) => b.type === 'text').map((b) => (b as Anthropic.TextBlock).text).join('\n').trim()
+  text = text.replace(/^```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+  // Be tolerant of stray text around the JSON object.
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  let parsed: any = {}
+  try {
+    parsed = JSON.parse(start >= 0 && end > start ? text.slice(start, end + 1) : text)
+  } catch {
+    parsed = {}
+  }
+  return normalizeBatchPlan(parsed, pool, targets)
+}
+
+/**
+ * Independently verify an authored question's answer with a FRESH Claude call
+ * (it never sees which option was marked correct). Returns the index it picks
+ * and whether it is confident — the caller keeps the question only when this
+ * agrees with the authored index.
+ */
+export async function verifyQuestionAnswer(args: {
+  apiKey: string
+  model: string
+  examName: string
+  question: ParsedQuestion
+}): Promise<{ index: number; confident: boolean }> {
+  const q = args.question
+  const optLines = q.options.map((o, i) => `${optionLetter(i)}) ${o}`).join('\n')
+  const client = new Anthropic({ apiKey: args.apiKey })
+  const resp = await client.messages.create({
+    model: args.model || 'claude-opus-4-8',
+    max_tokens: 300,
+    messages: [
+      {
+        role: 'user',
+        content: `Answer this ${args.examName} exam question. Reply with ONLY JSON: {"index": <0-based index of the correct option>, "confident": <true|false>}.
+
+${q.question}
+${optLines}`
+      }
+    ]
+  })
+  const text = resp.content.filter((b) => b.type === 'text').map((b) => (b as Anthropic.TextBlock).text).join('').trim()
+  try {
+    const m = /\{[\s\S]*\}/.exec(text)
+    const o = JSON.parse(m ? m[0] : text)
+    const index = Number(o?.index)
+    return { index: Number.isInteger(index) ? index : -1, confident: o?.confident === true }
+  } catch {
+    return { index: -1, confident: false }
+  }
+}
+
+// ---------------------------------------------------------------------
 // Generation
 // ---------------------------------------------------------------------
 
@@ -576,19 +863,26 @@ export function validateGeneratedScript(yaml: string, expect: FactoryExpectation
     if (w < 6 || w > 50) errors.push(`outro voiceover should be 6–50 words (got ${w})`)
   }
 
-  // Exactly 3 scenes, each with proper display lines and pacing.
+  // Exactly 3 scenes, each with proper display lines and pacing. A scene that
+  // carries a `chart:` block is a code-drawn visual instead of text bands, so
+  // it is exempt from the display-line/band rules (its data is already
+  // validated by the parser) but still needs a well-paced voiceover.
   if (spec.scenes.length !== 3) errors.push(`exactly 3 scenes required (got ${spec.scenes.length})`)
   spec.scenes.forEach((sc, i) => {
-    const lines = extractDisplayLines(sc.explainer)
-    if (lines.length < 3) errors.push(`scene ${i + 1}: needs at least 3 whole-line quoted display lines (got ${lines.length})`)
-    for (const l of lines) {
-      if (l.length > 48) errors.push(`scene ${i + 1}: display line too long (max 48 chars): "${l.slice(0, 50)}…"`)
+    if (!sc.chart) {
+      const lines = extractDisplayLines(sc.explainer)
+      if (lines.length < 3) errors.push(`scene ${i + 1}: needs at least 3 whole-line quoted display lines (got ${lines.length})`)
+      for (const l of lines) {
+        if (l.length > 48) errors.push(`scene ${i + 1}: display line too long (max 48 chars): "${l.slice(0, 50)}…"`)
+      }
+      if (!/band/i.test(sc.explainer)) errors.push(`scene ${i + 1}: explainer must place elements in bands (TOP/UPPER/MIDDLE/LOWER)`)
     }
-    if (!/band/i.test(sc.explainer)) errors.push(`scene ${i + 1}: explainer must place elements in bands (TOP/UPPER/MIDDLE/LOWER)`)
     const w = words(sc.voiceover)
     if (w < 35 || w > 140) errors.push(`scene ${i + 1}: voiceover should be 35–140 words (got ${w})`)
   })
-  if (spec.scenes[2] && !/star/i.test(spec.scenes[2].explainer))
+  // The scene-3 memory-hook star is required only when scene 3 is a text scene
+  // (a chart scene 3 carries its own visual).
+  if (spec.scenes[2] && !spec.scenes[2].chart && !/star/i.test(spec.scenes[2].explainer))
     errors.push('scene 3 must include the FILLED star memory-hook mark')
 
   // Style block.

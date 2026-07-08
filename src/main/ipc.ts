@@ -43,8 +43,13 @@ import {
   validateQuestionScript,
   reviewScriptWithClaude,
   normalizeStoryboardToConcepts,
+  expandConcepts,
+  planExamBatch,
+  verifyQuestionAnswer,
+  DEFAULT_BATCH_TARGETS,
   factoryVideoName,
-  type QuestionExpectations
+  type QuestionExpectations,
+  type ChartKind
 } from './pipeline/factory'
 import { detectDocType, parseQuestions, type ParsedQuestion } from './pipeline/docdetect'
 
@@ -524,9 +529,10 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
           return finish(false, 'Please save the document as .txt or .md (docx is not supported yet).', 0, [])
         }
         const rawText = await fs.promises.readFile(args.doc_path, 'utf8')
-        // Production model: up to 11 shorts per exam — 10 map one-per-template-set
-        // (1..10), the 11th is a SAFETY BACKUP (rotation wraps: it reuses set 1).
-        const MAX_CONCEPTS = 11
+        // Production model: up to 15 shorts per exam. Templates rotate across the
+        // uploaded sets in order and WRAP when there are fewer sets than shorts —
+        // with all 10 sets uploaded, shorts 11..15 reuse sets 1..5.
+        const MAX_CONCEPTS = 15
 
         // AUTO-DETECT the raw document and route it: a question bank becomes
         // question shorts; a teaching storyboard is distilled into concepts;
@@ -557,7 +563,9 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
           }
         }
 
-        type FactoryItem = { kind: 'concept'; text: string } | { kind: 'question'; q: ParsedQuestion }
+        type FactoryItem =
+          | { kind: 'concept'; text: string; chart?: ChartKind }
+          | { kind: 'question'; q: ParsedQuestion }
         let items: FactoryItem[]
         if (docType === 'questions') {
           const qs = parseQuestions(rawText)
@@ -566,11 +574,59 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
           items = qs.slice(0, MAX_CONCEPTS).map((q) => ({ kind: 'question', q }) as FactoryItem)
           if (qs.length > MAX_CONCEPTS) send(`Factory: ${qs.length} questions found — generating the first ${MAX_CONCEPTS}.`)
         } else {
+          // FULL-EXAM BATCH: from one exam, produce a planned MIX of shorts —
+          // theory + charts (bar/compare/flow/donut, matched by fit) + authored
+          // exam questions (each answer independently verified). See factory.ts.
+          const T = DEFAULT_BATCH_TARGETS
+          const conceptSlots = T.theory + (T.charts.bar + T.charts.compare + T.charts.flow + T.charts.donut)
           const concepts = splitConcepts(conceptSource)
           if (concepts.length === 0)
             return finish(false, 'No concept sections found — separate concepts with lines containing just "---".', 0, [])
-          items = concepts.slice(0, MAX_CONCEPTS).map((text) => ({ kind: 'concept', text }) as FactoryItem)
-          if (concepts.length > MAX_CONCEPTS) send(`Factory: document has ${concepts.length} concepts — generating the first ${MAX_CONCEPTS}.`)
+          // Top up the concept POOL so the planner has enough to fill the theory
+          // + chart slots (questions are authored separately, not from concepts).
+          if (concepts.length < conceptSlots) {
+            const needed = conceptSlots - concepts.length
+            send(`Factory: document has ${concepts.length} concept(s) — writing ${needed} more to fill the batch.`)
+            try {
+              const extra = await expandConcepts({ apiKey: settings.anthropic_api_key, model: settings.claude_model, examName, existing: concepts, needed })
+              if (extra.length < needed) send(`Factory: could add only ${extra.length} distinct new concept(s) — proceeding with ${concepts.length + extra.length}.`)
+              concepts.push(...extra)
+            } catch (err: any) {
+              send(`Factory: concept top-up failed (${err?.message ?? err}) — proceeding with the ${concepts.length} document concept(s).`)
+            }
+          }
+
+          items = []
+          try {
+            send(`Factory: planning the exam batch (${T.theory} theory, ${T.charts.bar} bar, ${T.charts.compare} compare, ${T.charts.flow} flow, ${T.charts.donut} donut, ${T.questions} questions)…`)
+            const plan = await planExamBatch({ apiKey: settings.anthropic_api_key, model: settings.claude_model, examName, concepts })
+            const chartMix = plan.concepts.filter((c) => c.chart).reduce((m: Record<string, number>, c) => ((m[c.chart!] = (m[c.chart!] || 0) + 1), m), {})
+            send(`Factory: plan → ${plan.concepts.length} concept videos (${Object.entries(chartMix).map(([k, v]) => `${v} ${k}`).join(', ') || 'all theory'}${plan.concepts.some((c) => !c.chart) ? `, ${plan.concepts.filter((c) => !c.chart).length} theory` : ''}) + ${plan.questions.length} authored question(s).`)
+            for (const c of plan.concepts) items.push({ kind: 'concept', text: c.text, chart: c.chart })
+
+            // Independently verify each authored question's answer; keep only the
+            // ones a fresh Claude agrees with (and is confident about).
+            for (let qi = 0; qi < plan.questions.length; qi++) {
+              const q = plan.questions[qi]
+              try {
+                const v = await verifyQuestionAnswer({ apiKey: settings.anthropic_api_key, model: settings.claude_model, examName, question: q })
+                if (v.confident && v.index === q.correctIndex) {
+                  items.push({ kind: 'question', q })
+                } else {
+                  send(`Factory: dropped an authored question — answer verification ${v.index === q.correctIndex ? 'was not confident' : 'disagreed'} (kept it out of the batch).`)
+                }
+              } catch (err: any) {
+                send(`Factory: could not verify an authored question (${err?.message ?? err}) — skipping it.`)
+              }
+            }
+          } catch (err: any) {
+            // Planner unavailable — fall back to a plain concept batch so the
+            // exam still yields videos (no charts / no authored questions).
+            send(`Factory: batch planning failed (${err?.message ?? err}) — falling back to plain theory videos.`)
+            items = concepts.slice(0, MAX_CONCEPTS).map((text) => ({ kind: 'concept', text }) as FactoryItem)
+          }
+          if (items.length === 0)
+            items = concepts.slice(0, MAX_CONCEPTS).map((text) => ({ kind: 'concept', text }) as FactoryItem)
         }
 
         // Music rotation from the CURRENT saved profiles — add new audio names
@@ -618,7 +674,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
           const prompt =
             item.kind === 'question'
               ? buildQuestionPrompt({ ...base, question: item.q })
-              : buildScriptPrompt({ ...base, conceptText: item.text })
+              : buildScriptPrompt({ ...base, conceptText: item.text, forceChart: item.chart })
           const expect = {
             videoName,
             channel: args.channel,

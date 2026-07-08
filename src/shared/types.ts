@@ -35,10 +35,35 @@ export interface Transition {
   duration: number // seconds
 }
 
+/**
+ * CHART/DIAGRAM — an optional code-drawn visual for a middle scene. When a
+ * SceneSpec carries a `chart`, that scene is rendered deterministically as the
+ * chosen visual (drawn entirely in SVG, sized to the safe zone, each element's
+ * reveal synced to the voiceover) INSTEAD of the plain text bands/box/marks.
+ * Everything here is structured data the script writer supplies explicitly —
+ * nothing is scraped from prose — so the render is as reliable as the marks.
+ */
+export interface ChartSpec {
+  /** which visual to draw */
+  type: 'bar' | 'compare' | 'flow' | 'donut'
+  /** short title shown above the visual */
+  title?: string
+  /** bar & donut: 2–6 labelled numeric data points (donut values are shares) */
+  data?: { label: string; value: number }[]
+  /** compare: the two column headers, e.g. ["Freehold", "Leasehold"] */
+  headers?: [string, string]
+  /** compare: 1–6 rows, each "left cell | right cell" */
+  rows?: string[]
+  /** flow: 2–5 ordered steps drawn as boxes joined by arrows */
+  steps?: string[]
+}
+
 export interface SceneSpec {
   explainer: string
   voiceover: string
   transition_out: Transition
+  /** when set, this middle scene renders as a code-drawn chart/diagram (see ChartSpec) */
+  chart?: ChartSpec
 }
 
 /**
