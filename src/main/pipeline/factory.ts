@@ -417,7 +417,7 @@ export function validateQuestionScript(yaml: string, expect: QuestionExpectation
     if (w < 15 || w > 140) errors.push(`scene ${i + 1}: voiceover should be 15–140 words (got ${w})`)
   })
   // Scene 1's voiceover must actually count down for the on-screen countdown to sync.
-  if (spec.scenes[0] && !/\b(one|1)\b/.test(spec.scenes[0].voiceover) && !/count/i.test(spec.scenes[0].voiceover))
+  if (spec.scenes[0] && !/\b(one|1)\b/i.test(spec.scenes[0].voiceover) && !/count/i.test(spec.scenes[0].voiceover))
     errors.push('scene 1 voiceover must end with a spoken countdown (…five, four, three, two, one) so the on-screen countdown syncs')
 
   const colors = spec.style?.colors ?? []
