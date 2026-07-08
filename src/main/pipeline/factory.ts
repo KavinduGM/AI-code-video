@@ -18,6 +18,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { parseScript, ScriptValidationError } from './parser'
 import { extractDisplayLines } from './claude'
 import type { ScriptSpec } from '@shared/types'
+import { optionLetter, type ParsedQuestion } from './docdetect'
 
 // ---------------------------------------------------------------------
 // Concept splitting
@@ -199,6 +200,264 @@ scenes:                  # each scene has EXACTLY these 3 keys:
       duration: 0.5
 
 Output the complete YAML now.`
+}
+
+// ---------------------------------------------------------------------
+// QUESTION SHORTS — one exam question per short (from a question bank).
+// The question DATA is parsed deterministically (docdetect); Claude only
+// SHORTENS the on-screen text and writes the voiceovers + reframed intro,
+// and MUST keep the correct-answer index exactly as given.
+// ---------------------------------------------------------------------
+
+export interface QuestionTarget {
+  examName: string
+  channel: string
+  videoName: string
+  outputFolder: string
+  voiceProfile: string
+  backgroundMusic?: string
+  templateSet?: number
+  paletteIndex: number
+  question: ParsedQuestion
+}
+
+export function buildQuestionPrompt(t: QuestionTarget): string {
+  const p = FACTORY_PALETTES[t.paletteIndex % FACTORY_PALETTES.length]
+  const q = t.question
+  const optLines = q.options.map((o, i) => `  ${optionLetter(i)}) ${o}`).join('\n')
+  const whyLines = q.options
+    .map((_, i) => (i === q.correctIndex ? '' : `  ${optionLetter(i)}: ${q.whyWrong[i] || '(no reason given)'}`))
+    .filter(Boolean)
+    .join('\n')
+  const correctL = optionLetter(q.correctIndex)
+  return `You write YAML scripts for an automated shorts-video system. This is a QUESTION short — ONE exam question, not a concept breakdown. Output ONE complete YAML document and NOTHING else — no markdown fences, no commentary.
+
+THE EXAM QUESTION (keep the answer EXACT; SHORTEN every on-screen text so it fits a phone screen):
+Question: ${q.question}
+Options:
+${optLines}
+CORRECT ANSWER: ${correctL} (zero-based index ${q.correctIndex}) — this is FIXED, never change it.
+Why correct: ${q.whyCorrect}
+Why each wrong option is wrong:
+${whyLines}
+
+EXACT VALUES the script MUST use verbatim:
+- video_name: ${t.videoName}
+- exam_name: "${t.examName}"
+- ratio: "9:16"
+- output_folder: ${t.outputFolder}
+- voice_profile: ${t.voiceProfile}
+- voice_speed: 1.0
+${t.backgroundMusic ? `- background_music: "${t.backgroundMusic}"` : ''}
+${t.templateSet ? `- template_set: ${t.templateSet}` : ''}
+- channel: "${t.channel}"
+- colors (exactly these 5, in this order):
+  - "${p.bg}"
+  - "${p.accent}"
+  - "${p.emph}"
+  - "${p.warn}"
+  - "${p.body}"
+- fonts: "Poppins", "Poppins"
+- description: |
+    Clean quiz short on a solid ${p.bgName} background. One exam question with
+    lettered options, a five-second countdown, then the answer highlighted and
+    explained. Large readable text, kept inside the 9:16 safe area.
+
+THE question: BLOCK (this drives the on-screen quiz — the answer index is FIXED):
+- ask: the question, SHORTENED to ≤ 70 characters but still clear.
+- options: the ${q.options.length} options, each SHORTENED to ≤ 30 characters, in the SAME ORDER as above.
+- correct: ${q.correctIndex}   # MUST be exactly ${q.correctIndex} (option ${correctL})
+- explain: why the correct answer is right, SHORTENED to ≤ 60 characters.
+- wrong: a list aligned 1:1 with options — the reason each option is wrong, ≤ 70 characters each; put "" (empty) at index ${q.correctIndex} (the correct one).
+
+INTRO (2 scenes — reframed for a QUESTION, not a concept):
+- The system shows a badge chip with "${t.examName}" above scene1, so scene1 must NOT contain the exam name.
+- voiceover: 1–2 sentences, 15–40 words, MUST include "${t.examName}", framing it as a quick question to test yourself.
+- scene1: a hook that invites a guess, 4–8 words, e.g. "Can you get this one right?" (max 45 chars, no exam name).
+- scene2: a short momentum line, e.g. "Test yourself in 60 seconds." (max 45 chars).
+
+THREE SCENE VOICEOVERS (the visuals are rendered deterministically by the system — the explainer is just a one-line note):
+- Scene 1 voiceover: pose the question naturally, then read the options ("Is it A, …; B, …;" etc.), then say "Guess the answer" — and END by counting down slowly: "Okay — five… four… three… two… one." (The on-screen countdown syncs to this.) 45–90 words.
+- Scene 2 voiceover: reveal that the answer is ${correctL}, and explain WHY in plain exam-coach language (from "Why correct" above). 30–70 words.
+- Scene 3 voiceover: go through the other options and say why each is wrong, briefly, one by one. 30–90 words.
+- Each scene explainer: a single short note line (it is not rendered), e.g. "Quiz — question, options, and countdown."
+- transition_out: scene 1 → {type: fade, duration: 0.5}; scene 2 → {type: dissolve, duration: 0.5}; scene 3 → {type: none, duration: 0}.
+
+OUTRO (2 scenes — UNIVERSAL, must NOT mention the exam name):
+- voiceover: 10–35 words, confident payoff + "Watch the full video, link in description."
+- scene1: short payoff line (max ~40 characters), no exam name.
+- scene2: "Watch the full video, link in description."
+- subscribe: true
+
+EXACT YAML SHAPE — the parser is STRICT; use ONLY these keys:
+
+video_name: …
+exam_name: "…"
+ratio: "9:16"
+output_folder: …
+voice_profile: …
+voice_speed: 1.0
+${t.backgroundMusic ? 'background_music: "…"\n' : ''}${t.templateSet ? 'template_set: …\n' : ''}channel: "…"
+colors: [5 items]
+fonts: ["Poppins", "Poppins"]
+description: |
+  …
+question:
+  ask: "…"
+  options:
+    - "…"
+  correct: ${q.correctIndex}
+  explain: "…"
+  wrong:
+    - "…"
+intro:
+  voiceover: |
+    …
+  scene1: "…"
+  scene2: "…"
+outro:
+  voiceover: |
+    …
+  scene1: "…"
+  scene2: "…"
+  subscribe: true
+scenes:
+  - explainer: |
+      Quiz — question, options, and countdown.
+    voiceover: |
+      …
+    transition_out:
+      type: fade
+      duration: 0.5
+  - explainer: |
+      Quiz — reveal the correct answer and explain it.
+    voiceover: |
+      …
+    transition_out:
+      type: dissolve
+      duration: 0.5
+  - explainer: |
+      Quiz — why the other options are wrong.
+    voiceover: |
+      …
+    transition_out:
+      type: none
+      duration: 0
+
+Output the complete YAML now.`
+}
+
+export interface QuestionExpectations extends FactoryExpectations {
+  correctIndex: number
+  optionCount: number
+}
+
+export function validateQuestionScript(yaml: string, expect: QuestionExpectations): { spec: ScriptSpec | null; errors: string[] } {
+  let spec: ScriptSpec
+  try {
+    spec = parseScript(yaml)
+  } catch (err: any) {
+    const msg = err instanceof ScriptValidationError ? err.message : String(err?.message ?? err)
+    return { spec: null, errors: [`YAML does not parse/validate: ${msg}`] }
+  }
+  const errors: string[] = []
+  const exam = expect.examName.toLowerCase()
+
+  if (spec.video_name !== expect.videoName) errors.push(`video_name must be exactly "${expect.videoName}" (got "${spec.video_name}")`)
+  if (spec.ratio !== '9:16') errors.push('ratio must be "9:16"')
+  if ((spec.channel ?? '') !== expect.channel) errors.push(`channel must be "${expect.channel}"`)
+  if ((spec.exam_name ?? '') !== expect.examName) errors.push(`exam_name must be exactly "${expect.examName}"`)
+  if (spec.voice_profile !== expect.voiceProfile) errors.push(`voice_profile must be "${expect.voiceProfile}"`)
+  if (expect.backgroundMusic && spec.background_music !== expect.backgroundMusic) errors.push(`background_music must be "${expect.backgroundMusic}"`)
+  if (expect.templateSet && spec.template_set !== expect.templateSet) errors.push(`template_set must be ${expect.templateSet}`)
+
+  // The question block — the answer must stay exactly what the source said.
+  if (!spec.question) errors.push('question block is missing (this is a question short)')
+  else {
+    const q = spec.question
+    if (q.options.length !== expect.optionCount) errors.push(`question.options must have ${expect.optionCount} entries (got ${q.options.length})`)
+    if (q.correct !== expect.correctIndex) errors.push(`question.correct must be ${expect.correctIndex} — the source answer; do NOT change it (got ${q.correct})`)
+    if (q.ask.length > 90) errors.push(`question.ask too long (max 90 chars): "${q.ask.slice(0, 60)}…"`)
+    q.options.forEach((o, i) => {
+      if (o.length > 40) errors.push(`question.options[${i}] too long (max 40 chars): "${o.slice(0, 44)}…"`)
+    })
+    if (q.explain.length > 90) errors.push('question.explain too long (max 90 chars)')
+    q.wrong.forEach((w, i) => {
+      if (i !== q.correct && w && w.length > 100) errors.push(`question.wrong[${i}] too long (max 100 chars)`)
+    })
+  }
+
+  // Intro — reframed hook, exam name only in the voiceover (badge shows it).
+  if (!spec.intro) errors.push('intro section is missing')
+  else {
+    if (!spec.intro.scene1 || !spec.intro.scene2) errors.push('intro needs BOTH scene1 and scene2')
+    const escExam = expect.examName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const preB = /^\w/.test(expect.examName) ? '\\b' : ''
+    const postB = /\w$/.test(expect.examName) ? '\\b' : ''
+    const examRe = new RegExp(`${preB}${escExam}${postB}`, 'i')
+    for (const [part, txt] of [['scene1', spec.intro.scene1], ['scene2', spec.intro.scene2]] as const)
+      if (txt && examRe.test(txt)) errors.push(`intro ${part} must NOT contain the exam name (the badge already shows it)`)
+    if (spec.intro.scene1 && spec.intro.scene1.length > 60) errors.push('intro scene1 too long (max 60 chars)')
+    if (!spec.intro.voiceover.toLowerCase().includes(exam)) errors.push('intro voiceover must mention the exam name')
+  }
+
+  // Outro — universal.
+  if (!spec.outro) errors.push('outro section is missing')
+  else {
+    if (!spec.outro.scene1 || !spec.outro.scene2) errors.push('outro needs BOTH scene1 and scene2')
+    if (!spec.outro.subscribe) errors.push('outro must set subscribe: true')
+    const outroText = `${spec.outro.voiceover} ${spec.outro.scene1 ?? ''} ${spec.outro.scene2 ?? ''}`.toLowerCase()
+    if (outroText.includes(exam)) errors.push('outro is UNIVERSAL — it must not mention the exam name')
+  }
+
+  // Exactly 3 scenes, each with a voiceover (the visuals are code-rendered).
+  if (spec.scenes.length !== 3) errors.push(`exactly 3 scenes required (got ${spec.scenes.length})`)
+  spec.scenes.forEach((sc, i) => {
+    const w = words(sc.voiceover)
+    if (w < 15 || w > 140) errors.push(`scene ${i + 1}: voiceover should be 15–140 words (got ${w})`)
+  })
+  // Scene 1's voiceover must actually count down for the on-screen countdown to sync.
+  if (spec.scenes[0] && !/\b(one|1)\b/.test(spec.scenes[0].voiceover) && !/count/i.test(spec.scenes[0].voiceover))
+    errors.push('scene 1 voiceover must end with a spoken countdown (…five, four, three, two, one) so the on-screen countdown syncs')
+
+  const colors = spec.style?.colors ?? []
+  if (colors.length !== 5 || !colors.every((c) => /^#[0-9a-fA-F]{6}$/.test(c))) errors.push('colors must be exactly 5 hex values')
+  if (!spec.style?.fonts?.length) errors.push('fonts list is missing')
+
+  return { spec, errors }
+}
+
+// ---------------------------------------------------------------------
+// STORYBOARD → CONCEPTS. A "VisualCues" teaching storyboard has the real
+// teaching content in its VOICEOVER lines. Claude distils it into focused
+// `---`-separated concept sections that then flow through the normal
+// concept → script pipeline.
+// ---------------------------------------------------------------------
+
+export async function normalizeStoryboardToConcepts(
+  args: { apiKey: string; model: string; storyboard: string; examName: string; maxConcepts: number }
+): Promise<string> {
+  const client = new Anthropic({ apiKey: args.apiKey })
+  const prompt = `This is the storyboard for one long teaching video for the ${args.examName} exam. Each "Point" has a VOICEOVER line (the actual teaching) plus drawing cues (ignore those).
+
+Distil the teaching content into up to ${args.maxConcepts} SELF-CONTAINED exam concepts — each becomes its own short video. Rules:
+- Draw the substance ONLY from the VOICEOVER lines. Ignore drawing/tablet cues, slide headers, and any "practice question bank"/CTA/review points.
+- Group related points into ONE concept where they teach a single idea; pick the highest-value, non-overlapping exam topics.
+- Each concept: a short "Topic: …" title line, then 400–900 characters of clean prose covering the definition, the exam trap/common confusion, and the memory hook or example the lecturer used.
+- Separate concepts with a line containing ONLY --- (three hyphens), a blank line before and after.
+- Output ONLY the concept sections (no preamble, no commentary, no fences).
+
+STORYBOARD:
+<<<
+${args.storyboard.slice(0, 60000)}
+>>>
+
+Output the ${args.maxConcepts} concept sections now.`
+  const stream = client.messages.stream({ model: args.model || 'claude-opus-4-8', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] })
+  const resp = await stream.finalMessage()
+  let text = resp.content.filter((b) => b.type === 'text').map((b) => (b as Anthropic.TextBlock).text).join('\n').trim()
+  text = text.replace(/^```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+  return text
 }
 
 // ---------------------------------------------------------------------

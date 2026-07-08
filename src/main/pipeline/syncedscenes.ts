@@ -37,10 +37,10 @@ export interface SyncedSceneArgs {
 }
 
 // ---- small local helpers (kept local so this file stays dependency-light) ----
-function esc(s: string): string {
+export function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
-function norm(w: string): string {
+export function norm(w: string): string {
   return w.toLowerCase().replace(/[^a-z0-9+]/g, '')
 }
 function clampN(v: number, lo: number, hi: number): number {
@@ -68,7 +68,7 @@ function lumaOf(hex: string): number | null {
 // explainer's color words ("in blue", "coral cross", "golden star") map to
 // the actual palette. Falls back to the dark-navy chemistry defaults.
 // --------------------------------------------------------------------
-interface Palette {
+export interface Palette {
   bg: string
   ink: string
   heading: string
@@ -77,7 +77,7 @@ interface Palette {
   gold: string
   green: string
 }
-function buildPalette(colors: string[]): Palette {
+export function buildPalette(colors: string[]): Palette {
   const valid = colors.filter((c) => lumaOf(c) !== null)
   const byLumaAsc = valid.slice().sort((a, b) => (lumaOf(a) as number) - (lumaOf(b) as number))
   const bg = byLumaAsc[0] ?? '#0E1A2B'
@@ -285,7 +285,7 @@ function renderText(text: string, emphasis: { word: string; color: string }[]): 
     })
     .join('')
 }
-function sizeFor(text: string, factor: number, lo: number, hi: number, widthPx: number): number {
+export function sizeFor(text: string, factor: number, lo: number, hi: number, widthPx: number): number {
   return clampN(Math.floor(widthPx / (factor * Math.max(4, text.length))), lo, hi)
 }
 

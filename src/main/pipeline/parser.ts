@@ -1,5 +1,5 @@
 import { parse } from 'yaml'
-import type { ScriptSpec, AspectRatio, SceneSpec, TransitionType } from '@shared/types'
+import type { ScriptSpec, AspectRatio, SceneSpec, TransitionType, QuestionSpec } from '@shared/types'
 import { RATIO_DIMENSIONS } from '@shared/types'
 
 const VALID_RATIOS: AspectRatio[] = ['16:9', '9:16', '1:1', '4:5', '21:9']
@@ -35,7 +35,8 @@ const ALLOWED_TOP_LEVEL = new Set([
   'fonts',
   'intro',
   'outro',
-  'scenes'
+  'scenes',
+  'question'
 ])
 
 const ALLOWED_SCENE_KEYS = new Set(['explainer', 'voiceover', 'transition_out'])
@@ -112,6 +113,8 @@ export function parseScript(yaml: string): ScriptSpec {
 
   const scenes: SceneSpec[] = (r.scenes as unknown[]).map((s, i) => parseScene(s, i))
 
+  const question = parseQuestion(r.question)
+
   return {
     video_name,
     ratio,
@@ -126,8 +129,53 @@ export function parseScript(yaml: string): ScriptSpec {
     style,
     intro,
     outro,
-    scenes
+    scenes,
+    question
   }
+}
+
+const ALLOWED_QUESTION_KEYS = new Set(['ask', 'options', 'correct', 'explain', 'wrong'])
+
+function parseQuestion(raw: unknown): QuestionSpec | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (typeof raw !== 'object') {
+    throw new ScriptValidationError('question must be a mapping.', 'question')
+  }
+  const o = raw as Record<string, unknown>
+  for (const k of Object.keys(o)) {
+    if (!ALLOWED_QUESTION_KEYS.has(k)) {
+      throw new ScriptValidationError(
+        `Unknown question key "${k}". Allowed: ${Array.from(ALLOWED_QUESTION_KEYS).join(', ')}.`,
+        `question.${k}`
+      )
+    }
+  }
+  const ask = requireString(o, 'ask', 'question.ask')
+  if (!Array.isArray(o.options) || o.options.length < 2 || o.options.length > 4) {
+    throw new ScriptValidationError('question.options must be a list of 2–4 strings.', 'question.options')
+  }
+  const options = o.options.map((v, i) => {
+    if (typeof v !== 'string' || v.trim() === '')
+      throw new ScriptValidationError('each option must be a non-empty string.', `question.options[${i}]`)
+    return v.trim()
+  })
+  const correct = Number(o.correct)
+  if (!Number.isInteger(correct) || correct < 0 || correct >= options.length) {
+    throw new ScriptValidationError(
+      `question.correct must be an integer 0..${options.length - 1} (0-based index of the correct option).`,
+      'question.correct'
+    )
+  }
+  const explain = requireString(o, 'explain', 'question.explain')
+  let wrong: string[] = []
+  if (o.wrong !== undefined) {
+    if (!Array.isArray(o.wrong))
+      throw new ScriptValidationError('question.wrong must be a list of strings.', 'question.wrong')
+    wrong = o.wrong.map((v) => (typeof v === 'string' ? v.trim() : ''))
+  }
+  // Normalise `wrong` to align 1:1 with options (blank at the correct index).
+  const wrongAligned = options.map((_, i) => (i === correct ? '' : wrong[i] ?? ''))
+  return { ask, options, correct, explain, wrong: wrongAligned }
 }
 
 const ALLOWED_INTRO_OUTRO_KEYS = new Set(['voiceover', 'on_screen', 'subscribe', 'highlight', 'scene1', 'scene2'])

@@ -41,6 +41,27 @@ export interface SceneSpec {
   transition_out: Transition
 }
 
+/**
+ * QUESTION SHORT — an exam-question video instead of a concept breakdown.
+ * When present on a ScriptSpec, the three middle scenes are rendered
+ * deterministically as a quiz: scene 1 shows the question + options + a
+ * synced 5-second countdown; scene 2 highlights the correct option + its
+ * explanation; scene 3 reveals why each wrong option is wrong, one by one.
+ * The `scenes` array still supplies each scene's voiceover + transition.
+ */
+export interface QuestionSpec {
+  /** the question stem (shortened to fit) */
+  ask: string
+  /** 2–4 answer options, already shortened for on-screen display */
+  options: string[]
+  /** 0-based index of the correct option */
+  correct: number
+  /** short "why the correct answer is right" line */
+  explain: string
+  /** reason each option is wrong, aligned to `options` ('' for the correct one) */
+  wrong: string[]
+}
+
 export interface IntroOutroSpec {
   voiceover: string
   on_screen: string
@@ -72,6 +93,8 @@ export interface ScriptSpec {
   intro?: IntroOutroSpec
   outro?: IntroOutroSpec
   scenes: SceneSpec[]
+  /** when set, the three middle scenes render as a deterministic quiz (see QuestionSpec) */
+  question?: QuestionSpec
 }
 
 export interface VoiceProfile {

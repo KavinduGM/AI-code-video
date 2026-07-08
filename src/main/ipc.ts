@@ -37,11 +37,16 @@ import { findProfileByName, findMusicByName } from './settings'
 import {
   splitConcepts,
   buildScriptPrompt,
+  buildQuestionPrompt,
   generateScript,
   validateGeneratedScript,
+  validateQuestionScript,
   reviewScriptWithClaude,
-  factoryVideoName
+  normalizeStoryboardToConcepts,
+  factoryVideoName,
+  type QuestionExpectations
 } from './pipeline/factory'
+import { detectDocType, parseQuestions, type ParsedQuestion } from './pipeline/docdetect'
 
 // Full-frame design backgrounds (storyboard without texts) — mirror of the
 // runner's BG_SLOTS; a card's *_bg.png wins over its hero slot.
@@ -516,20 +521,56 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
           return finish(false, `Voice profile "${args.voice_profile}" not found.`, 0, [])
         }
         if (/\.docx$/i.test(args.doc_path)) {
-          return finish(false, 'Please save the theory document as .txt or .md (docx is not supported yet).', 0, [])
+          return finish(false, 'Please save the document as .txt or .md (docx is not supported yet).', 0, [])
         }
-        const text = await fs.promises.readFile(args.doc_path, 'utf8')
-        const concepts = splitConcepts(text)
-        if (concepts.length === 0) {
-          return finish(false, 'No concept sections found — separate concepts with lines containing just "---".', 0, [])
-        }
-        // Production model: 11 shorts per exam — 10 map one-per-template-set
-        // (1..10), the 11th is a SAFETY BACKUP (rotation wraps: it reuses set 1's
-        // design) so a botched render still leaves a spare to publish.
+        const rawText = await fs.promises.readFile(args.doc_path, 'utf8')
+        // Production model: up to 11 shorts per exam — 10 map one-per-template-set
+        // (1..10), the 11th is a SAFETY BACKUP (rotation wraps: it reuses set 1).
         const MAX_CONCEPTS = 11
-        const use = concepts.slice(0, MAX_CONCEPTS)
-        if (concepts.length > MAX_CONCEPTS) {
-          send(`Factory: document has ${concepts.length} concepts — generating the first ${MAX_CONCEPTS}.`)
+
+        // AUTO-DETECT the raw document and route it: a question bank becomes
+        // question shorts; a teaching storyboard is distilled into concepts;
+        // plain concept theory is used as-is.
+        const docType = detectDocType(rawText)
+        send(
+          `Factory: detected ${
+            docType === 'questions'
+              ? 'a QUESTION BANK — building question shorts'
+              : docType === 'storyboard'
+                ? 'a teaching STORYBOARD — distilling its voiceovers into concepts'
+                : 'concept theory'
+          }.`
+        )
+
+        let conceptSource = rawText
+        if (docType === 'storyboard') {
+          try {
+            conceptSource = await normalizeStoryboardToConcepts({
+              apiKey: settings.anthropic_api_key,
+              model: settings.claude_model,
+              storyboard: rawText,
+              examName,
+              maxConcepts: MAX_CONCEPTS
+            })
+          } catch (err: any) {
+            return finish(false, `Factory: could not distil the storyboard (${err?.message ?? err}).`, 0, [])
+          }
+        }
+
+        type FactoryItem = { kind: 'concept'; text: string } | { kind: 'question'; q: ParsedQuestion }
+        let items: FactoryItem[]
+        if (docType === 'questions') {
+          const qs = parseQuestions(rawText)
+          if (qs.length === 0)
+            return finish(false, 'No questions found — expected "Q: … / A) … / CORRECT: X" blocks separated by ---.', 0, [])
+          items = qs.slice(0, MAX_CONCEPTS).map((q) => ({ kind: 'question', q }) as FactoryItem)
+          if (qs.length > MAX_CONCEPTS) send(`Factory: ${qs.length} questions found — generating the first ${MAX_CONCEPTS}.`)
+        } else {
+          const concepts = splitConcepts(conceptSource)
+          if (concepts.length === 0)
+            return finish(false, 'No concept sections found — separate concepts with lines containing just "---".', 0, [])
+          items = concepts.slice(0, MAX_CONCEPTS).map((text) => ({ kind: 'concept', text }) as FactoryItem)
+          if (concepts.length > MAX_CONCEPTS) send(`Factory: document has ${concepts.length} concepts — generating the first ${MAX_CONCEPTS}.`)
         }
 
         // Music rotation from the CURRENT saved profiles — add new audio names
@@ -564,38 +605,36 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
         const queued: string[] = []
         const failed: string[] = []
 
-        for (let i = 0; i < use.length; i++) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
+          const isQuestion = item.kind === 'question'
+          const conceptText = item.kind === 'concept' ? item.text : ''
           // Set number baked into the name/filename so the user can see at a
           // glance which template set each short used (NJ_RE_Exam_01_Set1…).
           const tset = uploadedSets.length ? uploadedSets[i % uploadedSets.length] : undefined
           const videoName = tset ? `${factoryVideoName(examName, i)}_Set${tset}` : factoryVideoName(examName, i)
-          const target = {
-            examName,
-            channel: args.channel,
-            videoName,
-            outputFolder,
-            voiceProfile: args.voice_profile,
-            backgroundMusic: music.length ? music[i % music.length] : undefined,
-            templateSet: tset,
-            paletteIndex: i,
-            conceptText: use[i]
-          }
+          const backgroundMusic = music.length ? music[i % music.length] : undefined
+          const base = { examName, channel: args.channel, videoName, outputFolder, voiceProfile: args.voice_profile, backgroundMusic, templateSet: tset, paletteIndex: i }
+          const prompt =
+            item.kind === 'question'
+              ? buildQuestionPrompt({ ...base, question: item.q })
+              : buildScriptPrompt({ ...base, conceptText: item.text })
           const expect = {
             videoName,
             channel: args.channel,
             examName,
             voiceProfile: args.voice_profile,
-            backgroundMusic: target.backgroundMusic,
-            templateSet: target.templateSet
+            backgroundMusic,
+            templateSet: tset,
+            ...(item.kind === 'question' ? { correctIndex: item.q.correctIndex, optionCount: item.q.options.length } : {})
           }
-          const prompt = buildScriptPrompt(target)
           let yaml = ''
           let ok = false
           let lastErrors: string[] = []
           try {
           // up to 3 attempts against the deterministic validator
           for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
-            send(`Factory ${i + 1}/${use.length} (${videoName}): writing script (attempt ${attempt})…`)
+            send(`Factory ${i + 1}/${items.length} (${videoName}): writing script (attempt ${attempt})…`)
             yaml = await generateScript({
               apiKey: settings.anthropic_api_key,
               model: settings.claude_model,
@@ -603,10 +642,10 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
               feedback: lastErrors.length ? lastErrors.join('\n') : undefined,
               previousYaml: lastErrors.length && yaml ? yaml : undefined
             })
-            const v = validateGeneratedScript(yaml, expect)
+            const v = isQuestion ? validateQuestionScript(yaml, expect as QuestionExpectations) : validateGeneratedScript(yaml, expect)
             lastErrors = v.errors
             ok = v.errors.length === 0
-            if (!ok) send(`Factory ${i + 1}/${use.length}: format check found ${v.errors.length} issue(s) — regenerating with exact feedback.`)
+            if (!ok) send(`Factory ${i + 1}/${items.length}: format check found ${v.errors.length} issue(s) — regenerating with exact feedback.`)
           }
           if (!ok) {
             // Park it for MANUAL review instead of discarding — the user can
@@ -616,20 +655,23 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
             updateJob(rj.id, { current_step: 'Needs manual review' })
             broadcast({ type: 'created', job: getJob(rj.id)! })
             failed.push(videoName)
-            send(`Factory ${i + 1}/${use.length}: ${videoName} needs YOUR review (Queue tab) — ${lastErrors.length} unresolved issue(s).`)
+            send(`Factory ${i + 1}/${items.length}: ${videoName} needs YOUR review (Queue tab) — ${lastErrors.length} unresolved issue(s).`)
             continue
           }
-          // Claude quality review — one repair round allowed.
-          send(`Factory ${i + 1}/${use.length}: reviewing script quality…`)
+          // Claude quality review — one repair round allowed. Concepts only;
+          // question shorts are gated by the deterministic validator + the
+          // fixed correct-answer index, so no semantic review is needed.
+          if (!isQuestion) {
+          send(`Factory ${i + 1}/${items.length}: reviewing script quality…`)
           let review = await reviewScriptWithClaude({
             apiKey: settings.anthropic_api_key,
             model: settings.claude_model,
             yaml,
             examName,
-            conceptText: use[i]
+            conceptText
           })
           if (!review.pass) {
-            send(`Factory ${i + 1}/${use.length}: reviewer flagged ${review.issues.length} issue(s) — one repair round…`)
+            send(`Factory ${i + 1}/${items.length}: reviewer flagged ${review.issues.length} issue(s) — one repair round…`)
             const yaml2 = await generateScript({
               apiKey: settings.anthropic_api_key,
               model: settings.claude_model,
@@ -644,7 +686,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
                 model: settings.claude_model,
                 yaml: yaml2,
                 examName,
-                conceptText: use[i]
+                conceptText
               })
               if (review2.pass) {
                 yaml = yaml2
@@ -658,8 +700,9 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
             updateJob(rj.id, { current_step: 'Needs manual review' })
             broadcast({ type: 'created', job: getJob(rj.id)! })
             failed.push(videoName)
-            send(`Factory ${i + 1}/${use.length}: ${videoName} needs YOUR review (Queue tab) — reviewer doubts: ${review.issues[0] ?? ''}`)
+            send(`Factory ${i + 1}/${items.length}: ${videoName} needs YOUR review (Queue tab) — reviewer doubts: ${review.issues[0] ?? ''}`)
             continue
+          }
           }
           // Verified → queue for rendering. Wake the worker NOW so rendering
           // starts with the first verified script and runs in parallel with the
@@ -669,7 +712,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
           broadcast({ type: 'created', job })
           queued.push(videoName)
           worker.wake()
-          send(`Factory ${i + 1}/${use.length}: ✓ verified and queued ${videoName}.`)
+          send(`Factory ${i + 1}/${items.length}: ✓ verified and queued ${videoName}.`)
           } catch (err: any) {
             failed.push(videoName)
             if (yaml) {
@@ -677,12 +720,12 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
               updateJob(rj.id, { current_step: 'Needs manual review' })
               broadcast({ type: 'created', job: getJob(rj.id)! })
             }
-            send(`Factory ${i + 1}/${use.length}: ${videoName} hit an error (${err?.message ?? err}) — continuing with the next concept.`)
+            send(`Factory ${i + 1}/${items.length}: ${videoName} hit an error (${err?.message ?? err}) — continuing with the next concept.`)
           }
         }
         if (queued.length > 0) worker.wake()
         const message =
-          `Factory done: ${queued.length}/${use.length} verified and rendering` +
+          `Factory done: ${queued.length}/${items.length} verified and rendering` +
           (failed.length ? ` — ${failed.length} NEED YOUR MANUAL REVIEW in the Queue tab: ${failed.join(', ')}` : '') +
           `.`
         return finish(queued.length > 0 || failed.length > 0, message, queued.length, failed)

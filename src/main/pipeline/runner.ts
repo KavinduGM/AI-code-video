@@ -15,6 +15,7 @@ import {
 } from './claude'
 import { pickStorySet, setsForChannel, templateAssetDir } from './storycards'
 import { buildSyncedSceneHtml } from './syncedscenes'
+import { buildQuestionSceneHtml } from './questionscenes'
 import { computeSceneFeatures, saveTemplate, findBestTemplate } from './templates'
 import { generateAudioWithTimestamps, type WordTiming } from './tts'
 import { mergeExamTokens, buildAss } from './captions'
@@ -601,6 +602,24 @@ export async function runJob(job: Job, cb: RunnerCallbacks, handle: { cancelled:
     // timings that drive the captions). One-pass reveals that end fully visible
     // → cannot loop, cannot come out empty. Claude generation stays as the
     // emergency fallback (e.g. an explainer with no quoted lines).
+    if (!firstHtml && seg.mode === 'scene' && spec.question) {
+      // QUESTION SHORT — the three middle scenes are a deterministic quiz
+      // (ask + options + synced countdown → reveal correct + explain → why
+      // the others are wrong), synced to the voiceover word timings.
+      try {
+        const stage = ['question + options + countdown', 'reveal + explanation', 'why the others are wrong'][seg.sceneIndex] ?? 'quiz'
+        cb.onLog(info(`${seg.label}: composing question-short scene (${stage})${tts.words ? `, synced to ${tts.words.length} word timings` : ''}`))
+        firstHtml = await buildQuestionSceneHtml({
+          question: spec.question,
+          sceneIndex: seg.sceneIndex,
+          style: spec.style,
+          durationSeconds: audioDuration,
+          words: tts.words
+        })
+      } catch (err: any) {
+        cb.onLog({ ts: Date.now(), level: 'warn', message: `${seg.label}: question scene build failed (${err.message}) — falling back to Claude generation.` })
+      }
+    }
     if (!firstHtml && seg.mode === 'scene') {
       try {
         cb.onLog(info(`${seg.label}: composing a deterministic voiceover-synced scene (code-built; line reveals timed to the narration${tts.words ? ` from ${tts.words.length} word timings` : ' — even spread, no word timings'})`))
