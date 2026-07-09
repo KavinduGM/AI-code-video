@@ -7,10 +7,15 @@ import VoiceProfilesPage from './pages/VoiceProfilesPage'
 import MusicPage from './pages/MusicPage'
 
 type Tab = 'queue' | 'new' | 'profiles' | 'music' | 'settings'
+export type PreviewStatus = { text: string; done: boolean; ok?: boolean; path?: string }
 
 export default function App(): JSX.Element {
   const [tab, setTab] = useState<Tab>('queue')
   const [jobs, setJobs] = useState<Job[]>([])
+  // Script-factory / preview progress. Subscribed HERE (App never unmounts) so
+  // events keep updating even while the user is on another tab — otherwise the
+  // status froze at whatever message was current when New Job unmounted.
+  const [preview, setPreview] = useState<PreviewStatus | null>(null)
 
   // Prevent the window from navigating away when a file is dropped anywhere
   // (Electron's default). Drop zones handle their own drops on top of this.
@@ -37,6 +42,13 @@ export default function App(): JSX.Element {
       })
     })
     return () => off()
+  }, [])
+
+  useEffect(() => {
+    const unsub = window.api.preview?.onEvent?.((ev) => setPreview(ev))
+    return () => {
+      if (typeof unsub === 'function') unsub()
+    }
   }, [])
 
   const activeCount = jobs.filter(
@@ -80,10 +92,40 @@ export default function App(): JSX.Element {
         >
           Settings
         </button>
+        {preview && (
+          <div
+            className={`factory-status ${preview.done ? (preview.ok ? 'ok' : 'err') : 'busy'}`}
+            style={{
+              marginTop: 'auto',
+              fontSize: 12,
+              lineHeight: 1.4,
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: 'rgba(255,255,255,.05)'
+            }}
+            title={preview.text}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 2 }}>
+              {preview.done ? (preview.ok ? '✓ Scripts' : '✕ Scripts') : '⏳ Writing scripts…'}
+            </div>
+            <div style={{ opacity: 0.85, maxHeight: 54, overflow: 'hidden' }}>{preview.text}</div>
+            {preview.done && (
+              <button
+                className="ghost"
+                style={{ marginTop: 6, padding: '2px 8px', fontSize: 11 }}
+                onClick={() => setPreview(null)}
+              >
+                Dismiss
+              </button>
+            )}
+          </div>
+        )}
       </aside>
       <main className="content">
         {tab === 'queue' && <QueuePage jobs={jobs} />}
-        {tab === 'new' && <NewJobPage onQueued={() => setTab('queue')} />}
+        {tab === 'new' && (
+          <NewJobPage onQueued={() => setTab('queue')} preview={preview} setPreview={setPreview} />
+        )}
         {tab === 'profiles' && <VoiceProfilesPage />}
         {tab === 'music' && <MusicPage />}
         {tab === 'settings' && <SettingsPage />}
