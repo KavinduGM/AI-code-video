@@ -557,11 +557,11 @@ export interface BatchTargets {
   questions: number
 }
 
-/** Default 15-video mix: 3 theory + 2 of each chart (8) + 4 questions. */
+/** Default 11-video mix: 3 theory + 2 bar + 2 compare + 1 flow + 1 donut + 2 questions. */
 export const DEFAULT_BATCH_TARGETS: BatchTargets = {
   theory: 3,
-  charts: { bar: 2, compare: 2, flow: 2, donut: 2 },
-  questions: 4
+  charts: { bar: 2, compare: 2, flow: 1, donut: 1 },
+  questions: 2
 }
 
 export interface BatchConceptItem {

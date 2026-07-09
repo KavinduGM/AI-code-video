@@ -505,34 +505,33 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
   // Every script must pass the deterministic format validator AND a Claude
   // quality review; failures regenerate with exact feedback, and anything
   // still failing is reported, never queued.
-  ipcMain.handle(
-    IPC.FACTORY_GENERATE,
-    async (
-      _e,
-      args: { channel: string; exam_name: string; doc_path: string; voice_profile: string }
-    ): Promise<{ ok: boolean; message: string; queued: number; failed: string[] }> => {
-      const send = (text: string, extra: { done?: boolean; ok?: boolean } = {}) =>
-        getMainWindow()?.webContents.send(IPC.PREVIEW_EVENT, { text, done: false, ...extra })
-      const finish = (ok: boolean, message: string, queued: number, failed: string[]) => {
-        send(message, { done: true, ok })
-        return { ok, message, queued, failed }
-      }
-      try {
+  // ---- BACKGROUND FACTORY QUEUE ----
+  // Documents queued for script generation are processed ONE AT A TIME in the
+  // background, so the "Generate & queue" button never blocks: the user can add
+  // more documents (any channel/exam) while earlier ones are still writing.
+  // Progress streams over PREVIEW_EVENT; render jobs are created as each script
+  // passes and the render worker picks them up in parallel.
+  type FactoryDoc = { channel: string; exam_name: string; doc_path: string; voice_profile: string }
+  const factoryQueue: FactoryDoc[] = []
+  let factoryBusy = false
+  const sendPreview = (text: string, extra: { done?: boolean; ok?: boolean } = {}) =>
+    getMainWindow()?.webContents.send(IPC.PREVIEW_EVENT, { text, done: false, ...extra })
+
+  // Generate every short for ONE document. Never throws to the caller — a bad
+  // document reports its own problem and the queue moves on to the next.
+  async function processFactoryDoc(args: FactoryDoc): Promise<void> {
+    const examName = args.exam_name.trim()
+    // Prefix every progress line with the exam so multiple queued docs are
+    // distinguishable in the status stream.
+    const send = (text: string, extra: { done?: boolean; ok?: boolean } = {}) =>
+      sendPreview(`${examName} — ${text}`, extra)
+    try {
         const settings = getSettings()
-        if (!settings.anthropic_api_key) return finish(false, 'Anthropic API key is missing in Settings.', 0, [])
-        const examName = args.exam_name.trim()
-        if (!examName) return finish(false, 'Exam name is required (e.g. "WGU C310 OA").', 0, [])
-        if (!findProfileByName(args.voice_profile)) {
-          return finish(false, `Voice profile "${args.voice_profile}" not found.`, 0, [])
-        }
-        if (/\.docx$/i.test(args.doc_path)) {
-          return finish(false, 'Please save the document as .txt or .md (docx is not supported yet).', 0, [])
-        }
         const rawText = await fs.promises.readFile(args.doc_path, 'utf8')
-        // Production model: up to 15 shorts per exam. Templates rotate across the
-        // uploaded sets in order and WRAP when there are fewer sets than shorts —
-        // with all 10 sets uploaded, shorts 11..15 reuse sets 1..5.
-        const MAX_CONCEPTS = 15
+        // Production model: up to 11 shorts per exam (10 template sets + 1 backup).
+        // Templates rotate across the uploaded sets in order and WRAP when there
+        // are fewer sets than shorts (the 11th reuses set 1).
+        const MAX_CONCEPTS = 11
 
         // AUTO-DETECT the raw document and route it: a question bank becomes
         // question shorts; a teaching storyboard is distilled into concepts;
@@ -559,7 +558,8 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
               maxConcepts: MAX_CONCEPTS
             })
           } catch (err: any) {
-            return finish(false, `Factory: could not distil the storyboard (${err?.message ?? err}).`, 0, [])
+            send(`could not distil the storyboard (${err?.message ?? err}).`)
+            return
           }
         }
 
@@ -569,8 +569,10 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
         let items: FactoryItem[]
         if (docType === 'questions') {
           const qs = parseQuestions(rawText)
-          if (qs.length === 0)
-            return finish(false, 'No questions found — expected "Q: … / A) … / CORRECT: X" blocks separated by ---.', 0, [])
+          if (qs.length === 0) {
+            send('no questions found — expected "Q: … / A) … / CORRECT: X" blocks separated by ---.')
+            return
+          }
           items = qs.slice(0, MAX_CONCEPTS).map((q) => ({ kind: 'question', q }) as FactoryItem)
           if (qs.length > MAX_CONCEPTS) send(`Factory: ${qs.length} questions found — generating the first ${MAX_CONCEPTS}.`)
         } else {
@@ -580,8 +582,10 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
           const T = DEFAULT_BATCH_TARGETS
           const conceptSlots = T.theory + (T.charts.bar + T.charts.compare + T.charts.flow + T.charts.donut)
           const concepts = splitConcepts(conceptSource)
-          if (concepts.length === 0)
-            return finish(false, 'No concept sections found — separate concepts with lines containing just "---".', 0, [])
+          if (concepts.length === 0) {
+            send('no concept sections found — separate concepts with lines containing just "---".')
+            return
+          }
           // Top up the concept POOL so the planner has enough to fill the theory
           // + chart slots (questions are authored separately, not from concepts).
           if (concepts.length < conceptSlots) {
@@ -781,12 +785,58 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
         }
         if (queued.length > 0) worker.wake()
         const message =
-          `Factory done: ${queued.length}/${items.length} verified and rendering` +
-          (failed.length ? ` — ${failed.length} NEED YOUR MANUAL REVIEW in the Queue tab: ${failed.join(', ')}` : '') +
+          `done — ${queued.length}/${items.length} verified and rendering` +
+          (failed.length ? `; ${failed.length} NEED YOUR MANUAL REVIEW in the Queue tab: ${failed.join(', ')}` : '') +
           `.`
-        return finish(queued.length > 0 || failed.length > 0, message, queued.length, failed)
+        send(message)
       } catch (err: any) {
-        return finish(false, `Factory failed: ${err?.message ?? err}`, 0, [])
+        send(`failed: ${err?.message ?? err}`)
+      }
+  }
+
+  // Drain the queue sequentially. Re-entrant-safe: only one pump runs; new
+  // documents pushed while it's working are picked up in the same loop.
+  async function pumpFactoryQueue(): Promise<void> {
+    if (factoryBusy) return
+    factoryBusy = true
+    try {
+      while (factoryQueue.length > 0) {
+        await processFactoryDoc(factoryQueue.shift()!)
+      }
+    } finally {
+      factoryBusy = false
+      // Late arrival between the loop exit and clearing the flag: pump again.
+      if (factoryQueue.length > 0) void pumpFactoryQueue()
+      else sendPreview('Script queue idle — all queued documents processed.', { done: true, ok: true })
+    }
+  }
+
+  // The handler just VALIDATES and ENQUEUES, returning immediately so the UI is
+  // free to add more documents while generation runs in the background.
+  ipcMain.handle(
+    IPC.FACTORY_GENERATE,
+    async (
+      _e,
+      args: FactoryDoc
+    ): Promise<{ ok: boolean; message: string; queued: number; failed: string[] }> => {
+      const settings = getSettings()
+      const examName = args.exam_name.trim()
+      const bad = (message: string) => ({ ok: false, message, queued: 0, failed: [] })
+      if (!settings.anthropic_api_key) return bad('Anthropic API key is missing in Settings.')
+      if (!examName) return bad('Exam name is required (e.g. "WGU C310 OA").')
+      if (!findProfileByName(args.voice_profile)) return bad(`Voice profile "${args.voice_profile}" not found.`)
+      if (/\.docx$/i.test(args.doc_path)) return bad('Please save the document as .txt or .md (docx is not supported yet).')
+      if (!args.doc_path || !fs.existsSync(args.doc_path)) return bad(`Document not found: ${args.doc_path}`)
+
+      const ahead = factoryQueue.length + (factoryBusy ? 1 : 0)
+      factoryQueue.push({ ...args, exam_name: examName })
+      sendPreview(`Queued "${examName}" for script generation${ahead > 0 ? ` — ${ahead} document(s) ahead of it.` : '.'}`)
+      void pumpFactoryQueue()
+      return {
+        ok: true,
+        message: `Added "${examName}" to the script queue${ahead > 0 ? ` (${ahead} ahead).` : '.'} You can queue more documents now.`,
+        queued: 0,
+        failed: []
       }
     }
   )

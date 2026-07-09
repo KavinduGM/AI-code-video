@@ -22,6 +22,9 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
   const [fDoc, setFDoc] = useState<string | null>(null)
   const [fVoice, setFVoice] = useState('')
   const [voices, setVoices] = useState<string[]>([])
+  // Brief flag for the enqueue round-trip only — NOT the whole generation run
+  // (that happens in the background), so the factory controls free up at once.
+  const [fSubmitting, setFSubmitting] = useState(false)
 
   useEffect(() => {
     window.api.template.get().then((t) => setTemplate(t))
@@ -117,9 +120,9 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
       setError('Factory not loaded yet. Fully quit and restart the app ("npm run dev").')
       return
     }
-    const starting: PreviewStatus = { text: 'Factory: starting…', done: false }
-    lastPreviewStatus = starting
-    setPreview(starting)
+    // Enqueue only — generation runs in the BACKGROUND, so this resolves fast
+    // and you can immediately add another document (same or different channel).
+    setFSubmitting(true)
     try {
       const res = await window.api.factory.generate({
         channel: fChannel,
@@ -127,16 +130,16 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
         doc_path: fDoc,
         voice_profile: fVoice
       })
-      if (res.queued > 0) onQueued()
-      if (!res.ok && lastPreviewStatus && !lastPreviewStatus.done) {
-        const ev: PreviewStatus = { text: res.message, done: true, ok: false }
-        lastPreviewStatus = ev
-        setPreview(ev)
+      if (res.ok) {
+        setOk(res.message)
+        setFDoc(null) // cleared so it's obvious it was submitted — pick the next one
+      } else {
+        setError(res.message)
       }
     } catch (err: any) {
-      const ev: PreviewStatus = { text: 'Factory failed: ' + (err?.message ?? String(err)), done: true, ok: false }
-      lastPreviewStatus = ev
-      setPreview(ev)
+      setError('Factory failed: ' + (err?.message ?? String(err)))
+    } finally {
+      setFSubmitting(false)
     }
   }
 
@@ -359,11 +362,11 @@ export default function NewJobPage({ onQueued }: { onQueued: () => void }): JSX.
               <option key={v} value={v}>{v}</option>
             ))}
           </select>
-          <button className="ghost" onClick={pickFactoryDoc} disabled={busy || previewBusy}>
+          <button className="ghost" onClick={pickFactoryDoc} disabled={fSubmitting}>
             {fDoc ? '…' + fDoc.slice(-32) : 'Pick theory document'}
           </button>
-          <button onClick={runFactory} disabled={busy || previewBusy}>
-            {previewBusy ? 'Working…' : 'Generate & queue shorts'}
+          <button onClick={runFactory} disabled={fSubmitting}>
+            {fSubmitting ? 'Adding…' : 'Generate & queue shorts'}
           </button>
         </div>
       </div>
