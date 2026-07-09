@@ -7,6 +7,9 @@ export default function SettingsPage(): JSX.Element {
   const [ttsCheck, setTtsCheck] = useState<{ ok: boolean; detail?: string } | null>(null)
   const [checking, setChecking] = useState(false)
   const [templateCount, setTemplateCount] = useState<number | null>(null)
+  const [bkPass, setBkPass] = useState('')
+  const [bkBusy, setBkBusy] = useState(false)
+  const [bkMsg, setBkMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => {
     window.api.settings.get().then(setSettings)
@@ -88,6 +91,44 @@ export default function SettingsPage(): JSX.Element {
       if (file) update('transition_sound_path', file)
     } catch (err: any) {
       alert('Could not open the audio picker: ' + (err?.message ?? String(err)))
+    }
+  }
+
+  async function doBackupExport() {
+    if (bkPass.length < 4) {
+      setBkMsg({ ok: false, text: 'Choose a password of at least 4 characters first — it protects your API keys.' })
+      return
+    }
+    setBkBusy(true)
+    setBkMsg(null)
+    try {
+      // Persist any unsaved edits so the backup captures the current settings.
+      await window.api.settings.set(settings!)
+      const r = await window.api.backup.export(bkPass)
+      setBkMsg({ ok: r.ok, text: r.message })
+    } catch (err: any) {
+      setBkMsg({ ok: false, text: 'Backup failed: ' + (err?.message ?? String(err)) })
+    } finally {
+      setBkBusy(false)
+    }
+  }
+
+  async function doBackupImport() {
+    if (bkPass.length < 4) {
+      setBkMsg({ ok: false, text: 'Enter the password the backup was saved with.' })
+      return
+    }
+    if (!confirm('Restore from a backup? This REPLACES your current API keys, voice profiles, music, and template packs on this PC.')) return
+    setBkBusy(true)
+    setBkMsg(null)
+    try {
+      const r = await window.api.backup.import(bkPass)
+      setBkMsg({ ok: r.ok, text: r.message })
+      if (r.ok) window.api.settings.get().then(setSettings) // reflect restored values
+    } catch (err: any) {
+      setBkMsg({ ok: false, text: 'Restore failed: ' + (err?.message ?? String(err)) })
+    } finally {
+      setBkBusy(false)
     }
   }
 
@@ -246,6 +287,39 @@ export default function SettingsPage(): JSX.Element {
             Clear templates
           </button>
         </div>
+      </div>
+
+      <div className="card">
+        <h3>Backup &amp; restore</h3>
+        <div className="sub" style={{ marginBottom: 8 }}>
+          Save <strong>everything</strong> — API keys, voice profiles &amp; voice IDs, music files, and
+          template packs — into ONE password-protected file. Keep it in your cloud drive (Google Drive,
+          OneDrive…) and <strong>Restore</strong> it on a new PC to be ready in one step. Only the video
+          rendering needs to run locally. The API keys inside are encrypted with your password — keep it
+          safe; it can't be recovered.
+        </div>
+        <div className="row" style={{ alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <label className="field grow">
+            Backup password
+            <input
+              type="password"
+              value={bkPass}
+              onChange={(e) => setBkPass(e.target.value)}
+              placeholder="Used to encrypt / decrypt the backup"
+            />
+          </label>
+          <button className="secondary" onClick={doBackupExport} disabled={bkBusy}>
+            {bkBusy ? 'Working…' : 'Export backup…'}
+          </button>
+          <button className="secondary" onClick={doBackupImport} disabled={bkBusy}>
+            {bkBusy ? 'Working…' : 'Restore backup…'}
+          </button>
+        </div>
+        {bkMsg && (
+          <div className={`banner ${bkMsg.ok ? 'ok' : 'err'}`} style={{ marginTop: 10 }}>
+            {bkMsg.text}
+          </div>
+        )}
       </div>
 
       <div className="row">

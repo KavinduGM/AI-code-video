@@ -234,7 +234,10 @@ export const IPC = {
   PREVIEW_EVENT: 'preview:event', // main → renderer progress/result stream
   // script factory: theory document → verified scripts → queue
   FACTORY_GENERATE: 'factory:generate',
-  JOB_APPROVE: 'job:approve' // approve (optionally with edits) a needs-review script
+  JOB_APPROVE: 'job:approve', // approve (optionally with edits) a needs-review script
+  // backup & restore: one password-encrypted file with keys, profiles, assets
+  BACKUP_EXPORT: 'backup:export',
+  BACKUP_IMPORT: 'backup:import'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

@@ -22,6 +22,7 @@ import {
   getStoragePaths
 } from './settings'
 import { clearJobs, createJob, deleteJob, getJob, listJobs, resetJob, updateJob } from './db'
+import { exportBackup, importBackup } from './backup'
 import { worker } from './worker'
 import { parseScript } from './pipeline/parser'
 import { ttsHealth, listVoices } from './pipeline/tts'
@@ -245,6 +246,40 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
       defaultPath
     })
     return res.canceled ? null : res.filePaths[0]
+  })
+
+  // ---- Backup & Restore: one password-encrypted file ----
+  ipcMain.handle(IPC.BACKUP_EXPORT, async (_e, passphrase: string): Promise<{ ok: boolean; message: string }> => {
+    const win = getMainWindow()
+    const res = await dialog.showSaveDialog(win!, {
+      title: 'Save backup',
+      defaultPath: 'ai-video-creator-backup.aivbk',
+      filters: [{ name: 'AI Video Creator backup', extensions: ['aivbk'] }]
+    })
+    if (res.canceled || !res.filePath) return { ok: false, message: 'Backup cancelled.' }
+    try {
+      return exportBackup({ destPath: res.filePath, passphrase, now: new Date().toISOString() })
+    } catch (err: any) {
+      return { ok: false, message: `Backup failed: ${err?.message ?? err}` }
+    }
+  })
+
+  ipcMain.handle(IPC.BACKUP_IMPORT, async (_e, passphrase: string): Promise<{ ok: boolean; message: string }> => {
+    const win = getMainWindow()
+    const res = await dialog.showOpenDialog(win!, {
+      title: 'Restore from backup',
+      properties: ['openFile'],
+      filters: [
+        { name: 'AI Video Creator backup', extensions: ['aivbk'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    })
+    if (res.canceled || !res.filePaths[0]) return { ok: false, message: 'Restore cancelled.' }
+    try {
+      return importBackup({ srcPath: res.filePaths[0], passphrase })
+    } catch (err: any) {
+      return { ok: false, message: `Restore failed: ${err?.message ?? err}` }
+    }
   })
 
   ipcMain.handle(IPC.PICK_SCRIPT, async () => {

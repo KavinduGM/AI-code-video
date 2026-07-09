@@ -79,6 +79,12 @@ const api = {
     generate: (args: { channel: string; exam_name: string; doc_path: string; voice_profile: string }): Promise<{ ok: boolean; message: string; queued: number; failed: string[] }> =>
       ipcRenderer.invoke(IPC.FACTORY_GENERATE, args)
   },
+  backup: {
+    export: (passphrase: string): Promise<{ ok: boolean; message: string }> =>
+      ipcRenderer.invoke(IPC.BACKUP_EXPORT, passphrase),
+    import: (passphrase: string): Promise<{ ok: boolean; message: string }> =>
+      ipcRenderer.invoke(IPC.BACKUP_IMPORT, passphrase)
+  },
   template: {
     get: (): Promise<string> => ipcRenderer.invoke(IPC.TEMPLATE_GET)
   },

@@ -98,6 +98,11 @@ export function findProfileByName(name: string): VoiceProfile | undefined {
   return listProfiles().find((p) => p.name.toLowerCase() === name.toLowerCase())
 }
 
+/** Replace the whole voice-profile list (used by backup restore). */
+export function replaceProfiles(list: VoiceProfile[]): void {
+  getStore().set('voiceProfiles', list)
+}
+
 // ---- Named background-music profiles ----
 
 export function listMusic(): MusicProfile[] {
@@ -123,6 +128,11 @@ export function deleteMusic(id: string): void {
 
 export function findMusicByName(name: string): MusicProfile | undefined {
   return listMusic().find((m) => m.name.toLowerCase() === name.trim().toLowerCase())
+}
+
+/** Replace the whole music-profile list (used by backup restore). */
+export function replaceMusicProfiles(list: MusicProfile[]): void {
+  getStore().set('musicProfiles', list)
 }
 
 export function getStoragePaths() {
